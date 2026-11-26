@@ -361,11 +361,13 @@ SKIP_SECTION = re.compile(r"^(references|notes|external links|see also|video gam
 TV_DESC = re.compile(r"television|tv series|web series|miniseries|animated series|anime|streaming series", re.I)
 FILM_DESC = re.compile(r"\bfilm\b|movie", re.I)
 SKIP_DESC = re.compile(r"video game|comic|novel|album|song|soundtrack|porn|parody|actor|actress|character|episode|"
-                       r"franchise|film series|toy|book|magazine|list of|television channel|company", re.I)
+                       r"franchise|film series|toy|book|magazine|list of|television channel|company|"
+                       r"producer|director|screenwriter|lawyer|writer|actor|businessman", re.I)
 # film/seriál musí mít komiksovou nebo superhrdinskou kategorii (jinak jde o zmínku, např. inspiraci nebo filmografii herce)
 COMIC_CAT = re.compile(r"superhero|supervillain|comics|based on (?:DC|Marvel)|DC Comics|Marvel|DC Extended|DC Universe|"
                        r"DC Animated|Batman|Superman|Justice League|Spider-Man|X-Men|Avengers|Teen Titans|Lego|"
                        r"animated television series based on|vigilante", re.I)
+NOT_COMIC_CAT = re.compile(r"adapted into comics|comics (?:writers|artists|historians|scholars|creators)|people|births|deaths", re.I)
 BAD_TITLE = re.compile(r"\bXXX\b|porn|parody", re.I)
 
 
@@ -458,7 +460,9 @@ def add_media_wiki(chars):
             if "continue" not in d:
                 break
             params = {**params, **d["continue"]}
-        ok_titles |= {t for t, cs in cats.items() if any(COMIC_CAT.search(c) for c in cs)}
+        ok_titles |= {t for t, cs in cats.items()
+                      if any(COMIC_CAT.search(c) and not NOT_COMIC_CAT.search(c) for c in cs)
+                      and not any(re.search(r"\b(births|deaths|living people)\b", c, re.I) for c in cs)}
     print(f"    komiksová díla podle kategorií: {len(ok_titles)}/{len(cand)}", flush=True)
 
     added = 0
