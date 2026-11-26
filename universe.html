@@ -21,28 +21,28 @@
     </div>
 
     <form class="toolbar" id="toolbar" onsubmit="return false">
-      <label>Hledat
-        <input type="search" id="q" placeholder="Jméno postavy…" autocomplete="off">
+      <label><span data-i18n="u.search">Hledat</span>
+        <input type="search" id="q" placeholder="Jméno postavy…" data-i18n-placeholder="u.searchPh" autocomplete="off">
       </label>
-      <label>Řadit
+      <label><span data-i18n="u.sort">Řadit</span>
         <select id="sort">
-          <option value="az">A → Z</option>
-          <option value="za">Z → A</option>
-          <option value="new">Od nejnovějších</option>
-          <option value="old">Od nejstarších</option>
+          <option value="az" data-i18n="u.sort.az">A → Z</option>
+          <option value="za" data-i18n="u.sort.za">Z → A</option>
+          <option value="new" data-i18n="u.sort.new">Od nejnovějších</option>
+          <option value="old" data-i18n="u.sort.old">Od nejstarších</option>
         </select>
       </label>
-      <label>Typ postavy
+      <label><span data-i18n="u.type">Typ postavy</span>
         <select id="align">
-          <option value="">Všechny</option>
-          <option value="good">Hrdinové</option>
-          <option value="bad">Záporáci</option>
-          <option value="neutral">Antihrdinové / neutrální</option>
+          <option value="" data-i18n="u.type.all">Všechny</option>
+          <option value="good" data-i18n="u.type.good">Hrdinové</option>
+          <option value="bad" data-i18n="u.type.bad">Záporáci</option>
+          <option value="neutral" data-i18n="u.type.neutral">Antihrdinové / neutrální</option>
         </select>
       </label>
     </form>
 
-    <div id="state" class="state">Načítám postavy…</div>
+    <div id="state" class="state" data-i18n="u.loading">Načítám postavy…</div>
     <div class="grid" id="grid"></div>
   </main>
 

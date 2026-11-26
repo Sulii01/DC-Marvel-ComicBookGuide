@@ -1,3 +1,5 @@
+import { t, lang } from './i18n.js';
+
 // Společná data a pomocné funkce pro celý web.
 // Databáze postav je v data/marvel.json a data/dc.json (generuje scripts/build_data.py).
 
@@ -7,10 +9,14 @@ export const UNIVERSES = {
 };
 
 export const ALIGNMENT = {
-  good:    { label: 'Hrdina',     cls: 'good' },
-  bad:     { label: 'Záporák',    cls: 'bad' },
-  neutral: { label: 'Antihrdina / neutrální', cls: 'neutral' },
+  good:    { get label() { return t('align.good'); },    cls: 'good' },
+  bad:     { get label() { return t('align.bad'); },     cls: 'bad' },
+  neutral: { get label() { return t('align.neutral'); }, cls: 'neutral' },
 };
+
+// Jméno a popis postavy v aktuálním jazyce
+export function nameOf(c) { return (lang === 'cs' && c.nameCs) || c.name; }
+export function descOf(c) { return lang === 'cs' ? (c.descCs || null) : (c.desc || null); }
 
 // Vlastní obrázky postav (Wikidata ID -> soubor v assets/characters/).
 // Když soubor chybí, použije se automaticky obrázek z databáze.
@@ -43,13 +49,13 @@ const cache = {};
 export async function loadAll(key) {
   if (cache[key]) return cache[key];
   const res = await fetch(`data/${key}.json`);
-  if (!res.ok) throw new Error(`Nepodařilo se načíst data postav (HTTP ${res.status}).`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (cache[key] = await res.json());
 }
 
 export async function loadOne(key, id) {
   const c = (await loadAll(key)).find(x => x.id === id);
-  if (!c) throw new Error('Postava nebyla nalezena.');
+  if (!c) throw new Error(t('c.notFound'));
   return c;
 }
 

@@ -266,14 +266,56 @@ def build(key, conf, akabab):
     return chars
 
 
+# ---------------------------------------------------------------- Čeština
+
+ALL_PROPS = sorted({p for props in PROPS.values() for p in props})
+
+
+def add_czech(chars, dictionary):
+    """Doplní české jméno, popis a název článku na české Wikipedii + slovník en -> cs."""
+    by_id = {c["id"]: c for c in chars}
+    pv = " ".join(f"wdt:{p}" for p in ALL_PROPS + ["P4584"])
+    for part in chunks(list(by_id), 400):
+        sub = "VALUES ?c { " + " ".join(f"wd:{q}" for q in part) + " }"
+        for r in sparql(f"""
+          SELECT ?c ?l ?d ?t WHERE {{
+            {sub}
+            OPTIONAL {{ ?c rdfs:label ?l FILTER(lang(?l)="cs") }}
+            OPTIONAL {{ ?c schema:description ?d FILTER(lang(?d)="cs") }}
+            OPTIONAL {{ ?a schema:about ?c; schema:isPartOf <https://cs.wikipedia.org/>; schema:name ?t }}
+          }}"""):
+            c = by_id[qid(r["c"]["value"])]
+            if "l" in r and r["l"]["value"] != c["name"]:
+                c["nameCs"] = r["l"]["value"]
+            if "d" in r:
+                c["descCs"] = r["d"]["value"]
+            if "t" in r:
+                c["wikiCs"] = r["t"]["value"]
+        for r in sparql(f"""
+          SELECT DISTINCT ?en ?cs WHERE {{
+            {sub}
+            VALUES ?p {{ {pv} }}
+            ?c ?p ?v . ?v rdfs:label ?en FILTER(lang(?en)="en") . ?v rdfs:label ?cs FILTER(lang(?cs)="cs")
+          }}"""):
+            en, cs = r["en"]["value"], r["cs"]["value"]
+            if en != cs:
+                dictionary[en] = cs
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     print("Superhero API…", flush=True)
     akabab = load_akabab()
+    dictionary = {}
     for key, conf in UNIVERSES.items():
         chars = build(key, conf, akabab)
+        print(f"[{key}] čeština…", flush=True)
+        add_czech(chars, dictionary)
         (OUT / f"{key}.json").write_text(json.dumps(chars, ensure_ascii=False, separators=(",", ":")))
-        print(f"[{key}] hotovo: {len(chars)} postav, {sum(1 for c in chars if c.get('img'))} s obrázkem", flush=True)
+        print(f"[{key}] hotovo: {len(chars)} postav, {sum(1 for c in chars if c.get('img'))} s obrázkem, "
+              f"{sum(1 for c in chars if c.get('wikiCs'))} s českým článkem", flush=True)
+    (OUT / "cs.json").write_text(json.dumps(dict(sorted(dictionary.items())), ensure_ascii=False, indent=0))
+    print(f"slovník: {len(dictionary)} výrazů", flush=True)
 
 
 if __name__ == "__main__":

@@ -1,14 +1,15 @@
-import { getUniverse, loadAll, UNIVERSES, ALIGNMENT, el, setImage, initials } from './data.js';
+import { getUniverse, loadAll, UNIVERSES, ALIGNMENT, el, setImage, initials, nameOf } from './data.js';
+import { t, lang } from './i18n.js';
 
 const u = getUniverse();
 if (!u) location.replace('index.html');
 
 document.body.classList.add(u.key);
-document.title = `${u.label} postavy – Comic Book Guide`;
-document.getElementById('title').textContent = `${u.label} postavy`;
+document.title = `${t('u.characters', { u: u.label })} – Comic Book Guide`;
+document.getElementById('title').textContent = t('u.characters', { u: u.label });
 const other = u.key === 'marvel' ? UNIVERSES.dc : UNIVERSES.marvel;
 document.getElementById('switch').append(
-  'Přepnout na ', el('a', { href: `universe.html?u=${other.key}`, text: other.label })
+  `${t('u.switch')} `, el('a', { href: `universe.html?u=${other.key}`, text: other.label })
 );
 
 const $ = id => document.getElementById(id);
@@ -18,10 +19,10 @@ $('sort').value = params.get('sort') || 'az';
 $('align').value = params.get('align') || '';
 
 let characters = [];
-const collator = new Intl.Collator('cs', { sensitivity: 'base', numeric: true });
+const collator = new Intl.Collator(lang, { sensitivity: 'base', numeric: true });
 
 function sorted(list, mode) {
-  const byName = (a, b) => collator.compare(a.name, b.name);
+  const byName = (a, b) => collator.compare(a.display, b.display);
   // Postavy bez známého roku jdou vždy na konec
   const byYear = dir => (a, b) => {
     if (a.year == null && b.year == null) return byName(a, b);
@@ -39,6 +40,7 @@ function render() {
   const mode = $('sort').value;
 
   const p = new URLSearchParams({ u: u.key });
+  if (params.get('lang')) p.set('lang', params.get('lang'));
   if (q) p.set('q', q);
   if (mode !== 'az') p.set('sort', mode);
   if (align) p.set('align', align);
@@ -49,19 +51,19 @@ function render() {
     (!q || c.search.includes(q))
   ), mode);
 
-  $('count').textContent = `${list.length} z ${characters.length}`;
-  $('state').textContent = list.length ? '' : 'Žádná postava neodpovídá filtru.';
+  $('count').textContent = t('u.count', { n: list.length, total: characters.length });
+  $('state').textContent = list.length ? '' : t('u.none');
   $('state').hidden = list.length > 0;
 
   const frag = document.createDocumentFragment();
   for (const c of list) {
     const a = ALIGNMENT[c.align];
     const avatar = el('div', { class: 'avatar' });
-    const img = el('img', { alt: c.name, loading: 'lazy', width: 320, height: 320 });
+    const img = el('img', { alt: c.display, loading: 'lazy', width: 320, height: 320 });
     avatar.append(img);
-    setImage(img, c, () => img.replaceWith(el('span', { class: 'initials', text: initials(c.name) })));
+    setImage(img, c, () => img.replaceWith(el('span', { class: 'initials', text: initials(c.display) })));
     frag.append(el('a', { class: 'card', href: `character.html?u=${u.key}&id=${c.id}` },
-      el('div', { class: 'name', text: c.name }),
+      el('div', { class: 'name', text: c.display }),
       avatar,
       el('div', { class: 'meta' },
         a ? el('span', { class: `badge ${a.cls}`, text: a.label }) : null,
@@ -73,8 +75,10 @@ function render() {
 
 try {
   characters = await loadAll(u.key);
-  for (const c of characters)
-    c.search = [c.name, c.realName, ...(c.aliases || [])].filter(Boolean).join(' | ').toLowerCase();
+  for (const c of characters) {
+    c.display = nameOf(c);
+    c.search = [c.name, c.nameCs, c.realName, ...(c.aliases || [])].filter(Boolean).join(' | ').toLowerCase();
+  }
   for (const id of ['q', 'sort', 'align']) $(id).addEventListener('input', render);
   render();
 } catch (e) {

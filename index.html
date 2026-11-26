@@ -11,9 +11,9 @@
 <body>
   <main class="landing">
     <h1>Comic Book Guide</h1>
-    <p class="lead">Vyber si univerzum. Hrdinové, záporáci, antihrdinové – všichni na jednom místě.</p>
+    <p class="lead" data-i18n="site.lead">Vyber si univerzum. Hrdinové, záporáci, antihrdinové – všichni na jednom místě.</p>
 
-    <nav class="choices" aria-label="Výběr univerza">
+    <nav class="choices" aria-label="Výběr univerza" data-i18n-aria="nav.choose">
       <a class="logo-link marvel" href="universe.html?u=marvel" aria-label="Marvel">
         <!-- Oficiální logo: ulož soubor jako assets/marvel-logo.png a zobrazí se místo textu -->
         <img src="assets/marvel-logo.png" alt="Marvel" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'logo-text marvel',textContent:'MARVEL'}))">
@@ -24,8 +24,8 @@
       </a>
     </nav>
 
-    <p class="note">Neoficiální fanouškovský web. Marvel a DC a všechny postavy jsou ochranné známky svých vlastníků.
-      Data postav: Superhero API (akabab) · Příběhy a seznamy komiksů: Wikipedie (CC BY-SA).</p>
+    <p class="note" data-i18n="site.note"></p>
   </main>
+  <script type="module" src="js/i18n.js"></script>
 </body>
 </html>

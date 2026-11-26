@@ -1,4 +1,5 @@
-import { getUniverse, loadOne, ALIGNMENT, IMAGE_OVERRIDES, clean, el, setImage } from './data.js';
+import { getUniverse, loadOne, ALIGNMENT, IMAGE_OVERRIDES, clean, el, setImage, nameOf, descOf } from './data.js';
+import { t, tv, lang, loadDictionary } from './i18n.js';
 
 const u = getUniverse();
 const id = new URLSearchParams(location.search).get('id');
@@ -7,6 +8,8 @@ document.body.classList.add(u.key);
 
 const $ = x => document.getElementById(x);
 const WIKI = 'https://en.wikipedia.org/w/api.php';
+const WIKI_CS = 'https://cs.wikipedia.org/w/api.php';
+const uniLink = () => `universe.html?u=${u.key}`;
 
 function specRows(target, rows) {
   for (const [label, value] of rows) {
@@ -23,48 +26,49 @@ function chipRow(target, label, list) {
 }
 
 function renderBase(c) {
-  document.title = `${c.name} – ${u.label} – Comic Book Guide`;
-  $('crumbs').append(' / ', el('a', { href: `universe.html?u=${u.key}`, text: `${u.label} postavy` }), ` / ${c.name}`);
-  $('name').textContent = c.name;
-  $('real').textContent = c.realName && c.realName !== c.name ? c.realName : '';
-  if (c.desc) $('real').after(el('p', { class: 'desc', text: c.desc }));
+  const name = nameOf(c);
+  document.title = `${name} – ${u.label} – Comic Book Guide`;
+  $('crumbs').append(' / ', el('a', { href: uniLink(), text: t('u.characters', { u: u.label }) }), ` / ${name}`);
+  $('name').textContent = name;
+  $('real').textContent = c.realName && c.realName !== name ? c.realName : '';
+  const desc = descOf(c);
+  if (desc) $('real').after(el('p', { class: 'desc', text: desc }));
 
   const a = ALIGNMENT[c.align];
   if (a) $('badges').append(el('span', { class: `badge ${a.cls}`, text: a.label }));
 
   // Obrázek z databáze / vlastní obrázek; Wikipedie ho případně nahradí větším
-  $('full').alt = c.name;
+  $('full').alt = name;
   setImage($('full'), c, () => $('full').closest('figure').hidden = true);
 
   specRows($('specs'), [
-    ['Skutečné jméno', c.realName],
-    ['Místo narození', c.birthplace],
-    ['První výskyt', c.firstApp ? `${c.firstApp}${c.year && !String(c.firstApp).includes(c.year) ? ` (${c.year})` : ''}` : (c.year ? String(c.year) : '')],
-    ['Vydavatel', u.publisher],
-    ['Tvůrci', c.creators],
-    ['Povolání', c.occupation],
-    ['Základna', c.base],
+    [t('s.realName'), c.realName],
+    [t('s.birthplace'), tv(c.birthplace)],
+    [t('s.firstApp'), c.firstApp ? `${c.firstApp}${c.year && !String(c.firstApp).includes(c.year) ? ` (${c.year})` : ''}` : (c.year ? String(c.year) : '')],
+    [t('s.publisher'), u.publisher],
+    [t('s.creators'), c.creators],
+    [t('s.occupation'), tv(c.occupation)],
+    [t('s.base'), c.base],
   ]);
-  chipRow($('specs'), 'Přezdívky / alter ega', c.aliases);
-  chipRow($('specs'), 'Týmy / organizace', c.teams);
-  chipRow($('specs'), 'Schopnosti', c.abilities);
-  chipRow($('specs'), 'Příbuzní a partneři', c.relatives);
-  chipRow($('specs'), 'Nepřátelé', c.enemies);
+  chipRow($('specs'), t('s.aliases'), c.aliases);
+  chipRow($('specs'), t('s.teams'), tv(c.teams));
+  chipRow($('specs'), t('s.abilities'), tv(c.abilities));
+  chipRow($('specs'), t('s.relatives'), tv(c.relatives));
+  chipRow($('specs'), t('s.enemies'), tv(c.enemies));
 
   specRows($('appearance'), [
-    ['Pohlaví', c.gender],
-    ['Druh', c.species],
-    ['Výška', c.height],
-    ['Váha', c.weight],
-    ['Barva očí', c.eyes],
-    ['Barva vlasů', c.hair],
+    [t('s.gender'), tv(c.gender)],
+    [t('s.species'), tv(c.species)],
+    [t('s.height'), c.height],
+    [t('s.weight'), c.weight],
+    [t('s.eyes'), tv(c.eyes)],
+    [t('s.hair'), tv(c.hair)],
   ]);
   if (!$('appearance').children.length) $('appearance').closest('.panel').hidden = true;
 
-  const names = { intelligence: 'Inteligence', strength: 'Síla', speed: 'Rychlost',
-                  durability: 'Odolnost', power: 'Moc', combat: 'Boj' };
   if (c.powerstats) {
-    for (const [k, label] of Object.entries(names)) {
+    for (const k of ['intelligence', 'strength', 'speed', 'durability', 'power', 'combat']) {
+      const label = t(`st.${k}`);
       const v = Number(c.powerstats[k]) || 0;
       $('stats').append(el('div', { class: 'stat' },
         el('span', { text: label }),
@@ -79,10 +83,10 @@ function renderBase(c) {
 
 /* ---------------- Wikipedie ---------------- */
 
-async function wiki(params) {
+async function wiki(params, api = WIKI) {
   const p = new URLSearchParams({ format: 'json', formatversion: '2', origin: '*', ...params });
-  const res = await fetch(`${WIKI}?${p}`);
-  if (!res.ok) throw new Error(`Wikipedie HTTP ${res.status}`);
+  const res = await fetch(`${api}?${p}`);
+  if (!res.ok) throw new Error(`Wikipedia HTTP ${res.status}`);
   return res.json();
 }
 
@@ -130,10 +134,10 @@ function toSafe(nodes) {
   for (const n of nodes) {
     if (n.matches('.mw-heading3, .mw-heading4, h3, h4')) {
       const lvl = n.matches('.mw-heading4, h4') ? 'h4' : 'h3';
-      out.push(el(lvl, { text: n.textContent.replace(/\[edit\]/g, '').trim() }));
+      out.push(el(lvl, { text: n.textContent.replace(/\[(edit|editovat)[^\]]*\]/g, '').trim() }));
     } else if (n.matches('p')) {
-      const t = n.textContent.replace(/\[\d+\]|\[[a-z]\]|\[citation needed\]/g, '').trim();
-      if (t) out.push(el('p', { text: t }));
+      const txt = n.textContent.replace(/\[\d+\]|\[[a-z]\]|\[citation needed\]|\[zdroj\?\]|\[pozn\. \d+\]/g, '').trim();
+      if (txt) out.push(el('p', { text: txt }));
     } else if (n.matches('ul, ol')) {
       const list = el(n.tagName.toLowerCase());
       for (const li of n.querySelectorAll(':scope > li'))
@@ -150,8 +154,8 @@ const COMICS = /^(collected editions|bibliography|comics|series|titles|in comics
 
 function extractComics(sections) {
   const found = new Map();
-  const add = (t, note) => {
-    t = t.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim();
+  const add = (t0, note) => {
+    let t = t0.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim();
     if (t.length < 3 || t.length > 90 || /^\d+$/.test(t) || /needed|citation|clarification/i.test(t)) return;
     const key = t.toLowerCase();
     if (!found.has(key)) found.set(key, { title: t, note });
@@ -162,11 +166,11 @@ function extractComics(sections) {
         // tabulky "Collected editions": první sloupec je název
         n.querySelectorAll?.('table tr').forEach(tr => {
           const cell = tr.querySelector('td');
-          if (cell) add(cell.textContent, 'Souborné vydání');
+          if (cell) add(cell.textContent, t('c.collected'));
         });
         n.querySelectorAll?.('li').forEach(li => {
           const i = li.querySelector('i');
-          add(i ? i.textContent : li.textContent.split(/[–(:]/)[0], 'Komiks');
+          add(i ? i.textContent : li.textContent.split(/[–(:]/)[0], t('c.comic'));
         });
       }
     }
@@ -176,7 +180,7 @@ function extractComics(sections) {
     if (PUB.test(s.title) || BIO.test(s.title)) {
       for (const n of s.nodes) n.querySelectorAll?.('p i, li i').forEach(i => {
         // kurzíva v poznámkách typu [volume and issue needed] není název komiksu
-        if (!i.closest('sup, .noprint, .Template-Fact')) add(i.textContent, 'Komiksová série');
+        if (!i.closest('sup, .noprint, .Template-Fact')) add(i.textContent, t('c.series'));
       });
     }
   }
@@ -190,12 +194,12 @@ async function loadWiki(c) {
   // Vždy zobrazit první výskyt jako první komiks
   const first = clean(c.firstApp);
   const items = [];
-  if (first) items.push({ title: first, note: 'První výskyt', first: true });
+  if (first) items.push({ title: first, note: t('c.firstApp'), first: true });
 
   let title;
   try {
     title = await findArticle(c);
-    if (!title) throw new Error('Článek nenalezen');
+    if (!title) throw new Error('404');
     const data = await wiki({ action: 'parse', page: title, prop: 'text', redirects: '1', disableeditsection: '1' });
     const doc = new DOMParser().parseFromString(data.parse.text, 'text/html');
     const sections = splitSections(doc);
@@ -214,38 +218,65 @@ async function loadWiki(c) {
       const fallback = img.src;
       img.onerror = () => { img.onerror = null; img.src = fallback; };
       img.src = src;
-      $('credit').append('Obrázek: ', el('a', { href: pageUrl, target: '_blank', rel: 'noopener', text: 'Wikipedie' }));
+      $('credit').append(`${t('c.image')}: `, el('a', { href: pageUrl, target: '_blank', rel: 'noopener', text: 'Wikipedia' }));
     }
 
-    // Origin story: intro + biografie postavy
-    const intro = sections.find(s => s.title === '__intro');
-    const bio = sections.filter(s => BIO.test(s.title));
-    const pub = sections.find(s => PUB.test(s.title));
-    const parts = [...toSafe(intro?.nodes || [])];
-    for (const s of bio) parts.push(el('h3', { text: s.title }), ...toSafe(s.nodes));
-    if (!bio.length && pub) parts.push(el('h3', { text: pub.title }), ...toSafe(pub.nodes));
-    origin.replaceChildren(...parts);
-    if (parts.length > 6) {
-      origin.classList.add('collapsed');
-      const btn = el('button', { class: 'btn', type: 'button', text: 'Zobrazit celý příběh' });
-      btn.onclick = () => { origin.classList.remove('collapsed'); btn.remove(); };
-      origin.after(btn);
+    // Origin story: v češtině z české Wikipedie (pokud článek existuje), jinak z anglické
+    let story = null;
+    if (lang === 'cs' && c.wikiCs) story = await czechStory(c.wikiCs).catch(() => null);
+    if (!story) {
+      const intro = sections.find(s => s.title === '__intro');
+      const bio = sections.filter(s => BIO.test(s.title));
+      const pub = sections.find(s => PUB.test(s.title));
+      const parts = [...toSafe(intro?.nodes || [])];
+      for (const s of bio) parts.push(el('h3', { text: s.title }), ...toSafe(s.nodes));
+      if (!bio.length && pub) parts.push(el('h3', { text: pub.title }), ...toSafe(pub.nodes));
+      if (lang === 'cs') parts.unshift(el('p', { class: 'source', text: t('c.originEnOnly') }));
+      story = { parts, url: pageUrl, title: data.parse.title, site: 'Wikipedia (EN)' };
     }
-    origin.parentElement.append(el('p', { class: 'source' },
-      'Zdroj: ', el('a', { href: pageUrl, target: '_blank', rel: 'noopener', text: `Wikipedie – ${data.parse.title}` }),
-      ' (CC BY-SA 4.0) · Více na ',
-      el('a', { href: `${u.fandom}/wiki/Special:Search?query=${encodeURIComponent(c.name)}`, target: '_blank', rel: 'noopener', text: `${u.label} Fandom wiki` })));
+    showStory(origin, story, c);
 
     items.push(...extractComics(sections));
-    $('comics-source').append('Seznam sestaven z článku ',
-      el('a', { href: pageUrl, target: '_blank', rel: 'noopener', text: data.parse.title }), ' na Wikipedii.');
+    const tpl = t('c.comicsSource', { a: '\u0000' }).split('\u0000');
+    $('comics-source').append(tpl[0],
+      el('a', { href: pageUrl, target: '_blank', rel: 'noopener', text: data.parse.title }), tpl[1] || '');
   } catch (e) {
-    origin.replaceChildren(el('p', { class: 'state error', text: `Příběh se nepodařilo načíst (${e.message}).` }));
+    origin.replaceChildren(el('p', { class: 'state error', text: t('c.originError', { e: e.message }) }));
   }
-  if (!items.length) { comics.append(el('li', { text: 'Žádné komiksy nenalezeny.' })); return; }
+  if (!items.length) { comics.append(el('li', { text: t('c.noComics') })); return; }
   const cards = items.map(comicCard);
   comics.replaceChildren(...cards.map(c => c.li));
   loadCovers(items, cards);
+}
+
+// Celý text článku z české Wikipedie kromě odkazů a literatury
+const CS_SKIP = /^(reference|poznámky|odkazy|externí odkazy|literatura|související články|v jiných médiích|film|televize|videohry)/i;
+async function czechStory(title) {
+  const data = await wiki({ action: 'parse', page: title, prop: 'text', redirects: '1', disableeditsection: '1' }, WIKI_CS);
+  const doc = new DOMParser().parseFromString(data.parse.text, 'text/html');
+  const parts = [];
+  for (const s of splitSections(doc)) {
+    if (CS_SKIP.test(s.title)) continue;
+    if (s.title !== '__intro') parts.push(el('h3', { text: s.title.replace(/\[editovat[^\]]*\]/g, '') }));
+    parts.push(...toSafe(s.nodes));
+  }
+  if (parts.filter(p => p.tagName === 'P').length === 0) return null;
+  const url = `https://cs.wikipedia.org/wiki/${encodeURIComponent(data.parse.title.replace(/ /g, '_'))}`;
+  return { parts, url, title: data.parse.title, site: 'Wikipedie (CZ)' };
+}
+
+function showStory(origin, story, c) {
+  origin.replaceChildren(...story.parts);
+  if (story.parts.length > 6) {
+    origin.classList.add('collapsed');
+    const btn = el('button', { class: 'btn', type: 'button', text: t('c.showAll') });
+    btn.onclick = () => { origin.classList.remove('collapsed'); btn.remove(); };
+    origin.after(btn);
+  }
+  origin.parentElement.append(el('p', { class: 'source' },
+    `${t('c.source')}: `, el('a', { href: story.url, target: '_blank', rel: 'noopener', text: `${story.site} – ${story.title}` }),
+    ` (CC BY-SA 4.0) · ${t('c.more')} `,
+    el('a', { href: `${u.fandom}/wiki/Special:Search?query=${encodeURIComponent(c.name)}`, target: '_blank', rel: 'noopener', text: `${u.label} Fandom wiki` })));
 }
 
 /* ---------------- Obálky komiksů ---------------- */
@@ -297,7 +328,7 @@ async function loadCovers(items, cards) {
       p && p.thumbnail && COMIC_DESC.test(p.description || '') && !NOT_COMIC.test(p.description || ''));
     if (!page) return;
     const { cover, li } = cards[i];
-    const img = el('img', { src: page.thumbnail.source, alt: `Obálka – ${items[i].title}`, loading: 'lazy' });
+    const img = el('img', { src: page.thumbnail.source, alt: `${t('c.cover')} – ${items[i].title}`, loading: 'lazy' });
     img.onerror = () => img.remove();
     cover.append(img);
     cover.classList.add('has-img');
@@ -308,6 +339,7 @@ async function loadCovers(items, cards) {
 }
 
 try {
+  await loadDictionary();
   const c = await loadOne(u.key, id);
   renderBase(c);
   loadWiki(c);
