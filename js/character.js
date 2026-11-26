@@ -229,11 +229,18 @@ async function loadWiki(c) {
     }
   }
   if (fullSrc) {
-    const img = $('full');
-    const fallback = img.src;
-    img.onerror = () => { img.onerror = null; img.src = fallback; };
-    img.src = fullSrc;
-    $('credit').append(`${t('c.image')}: `, el('a', { href: fullCredit[1], target: '_blank', rel: 'noopener', text: fullCredit[0] }));
+    // nový obrázek se nejdřív načte zvlášť a vymění se až po úspěšném načtení
+    const pre = new Image();
+    pre.referrerPolicy = 'no-referrer';
+    pre.onload = () => {
+      const img = $('full');
+      img.onerror = null;
+      img.classList.remove('custom');
+      img.src = fullSrc;
+      img.closest('figure').hidden = false;
+      $('credit').replaceChildren(`${t('c.image')}: `, el('a', { href: fullCredit[1], target: '_blank', rel: 'noopener', text: fullCredit[0] }));
+    };
+    pre.src = fullSrc;
   }
 
   // ---- Doplňující údaje z infoboxu Fandomu (jen co v databázi chybí)
@@ -287,7 +294,8 @@ function addFandomSpecs(c, f) {
   const specs = $('specs'), look = $('appearance');
   const add = (target, label, value) => {
     if (!value) return;
-    target.append(el('dt', { text: label }), el('dd', { text: value.split('; ').map(x => tv(x)).filter(Boolean).join(', ') }));
+    const words = x => lang === 'cs' ? x.replace(/\bFormerly\b/gi, 'dříve').replace(/\bUnknown\b/gi, 'neznámé').replace(/\bNone\b/g, 'žádné') : x;
+    target.append(el('dt', { text: label }), el('dd', { text: value.split('; ').map(x => words(tv(x) || '')).filter(Boolean).join(', ') }));
     target.closest('.panel').hidden = false;
   };
   if (!c.realName && f.RealName) add(specs, t('s.realName'), f.RealName);

@@ -45,7 +45,8 @@ export async function loadFandomPage(u, title) {
     url: fandomUrl(u, d.parse.title),
     doc,
     fields,
-    image: raw && /^https?:\/\//.test(raw) ? sized(raw, 700) : null,
+    // originál (vlastní šířky typu 700 px server někdy odmítne)
+    image: raw && /^https?:\/\//.test(raw) ? raw.replace(/\/scale-to-width-down\/\d+/, '') : null,
   };
 }
 

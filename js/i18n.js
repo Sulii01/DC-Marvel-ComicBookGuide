@@ -226,7 +226,10 @@ export async function translateEnglish(elements) {
   if (!('Translator' in self)) return 'unsupported';
   const opts = { sourceLanguage: 'en', targetLanguage: 'cs' };
   let avail;
-  try { avail = await self.Translator.availability(opts); } catch { return 'unsupported'; }
+  try {
+    // některé prohlížeče na dotaz neodpoví – po 4 s to bereme jako nepodporované
+    avail = await Promise.race([self.Translator.availability(opts), new Promise(r => setTimeout(() => r('unavailable'), 4000))]);
+  } catch { return 'unsupported'; }
   if (avail === 'unavailable') return 'unsupported';
   const run = async () => {
     const tr = await self.Translator.create(opts);
