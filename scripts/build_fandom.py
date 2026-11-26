@@ -283,11 +283,44 @@ def write(chars, key):
     print(f"[{key}] zapsáno: {len(chars)} postav, index {(OUT / f'{key}.json').stat().st_size // 1024} kB", flush=True)
 
 
+def clean_media(data):
+    """Vyřadí zjevně chybná díla: přehledové články („Batman in film“) a filmy/seriály
+    druhého vydavatele (např. „Eternals“ u Supermana), které se do dat dostaly z odkazů v textu."""
+    use = {}
+    for key, chars in data.items():
+        for c in chars:
+            for kind in ("films", "tv"):
+                for m in c.get(kind, []):
+                    w = (m.get("wiki") or m["name"]).lower()
+                    use.setdefault(w, {}).setdefault(key, 0)
+                    use[w][key] += 1
+    removed = 0
+    for key, chars in data.items():
+        for c in chars:
+            for kind in ("films", "tv"):
+                keep = []
+                for m in c.get(kind, []):
+                    w = (m.get("wiki") or m["name"]).lower()
+                    u = use[w]
+                    other = max(v for k, v in u.items() if k != key) if len(u) > 1 else 0
+                    if re.search(r"\bin (film|television|other media)$", w) or (other >= 3 and other > 2 * u[key]):
+                        removed += 1
+                        continue
+                    keep.append(m)
+                if c.get(kind):
+                    c[kind] = keep
+    print(f"    vyřazeno chybných děl: {removed}", flush=True)
+
+
 def main():
+    data = {}
     for key, conf in WIKIS.items():
         chars = json.loads((BASE / f"{key}.json").read_text())
         merge(chars, key, conf)
         B.disambiguate(chars)
+        data[key] = chars
+    clean_media(data)
+    for key, chars in data.items():
         write(chars, key)
 
 
