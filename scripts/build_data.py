@@ -361,7 +361,11 @@ SKIP_SECTION = re.compile(r"^(references|notes|external links|see also|video gam
 TV_DESC = re.compile(r"television|tv series|web series|miniseries|animated series|anime|streaming series", re.I)
 FILM_DESC = re.compile(r"\bfilm\b|movie", re.I)
 SKIP_DESC = re.compile(r"video game|comic|novel|album|song|soundtrack|porn|parody|actor|actress|character|episode|"
-                       r"franchise|film series|toy|book|magazine|list of|television channel|studio|company", re.I)
+                       r"franchise|film series|toy|book|magazine|list of|television channel|company", re.I)
+# film/seriál musí mít komiksovou nebo superhrdinskou kategorii (jinak jde o zmínku, např. inspiraci nebo filmografii herce)
+COMIC_CAT = re.compile(r"superhero|supervillain|comics|based on (?:DC|Marvel)|DC Comics|Marvel|DC Extended|DC Universe|"
+                       r"DC Animated|Batman|Superman|Justice League|Spider-Man|X-Men|Avengers|Teen Titans|Lego|"
+                       r"animated television series based on|vigilante", re.I)
 BAD_TITLE = re.compile(r"\bXXX\b|porn|parody", re.I)
 
 
@@ -440,6 +444,23 @@ def add_media_wiki(chars):
                 item["year"] = int(y.group(1))
             info[orig] = item
 
+    # kategorie kandidátů – ponechat jen komiksová/superhrdinská díla
+    ok_titles = set()
+    cand = sorted({m["wiki"] for m in info.values()})
+    for part in chunks(cand, 50):
+        params = {"action": "query", "format": "json", "formatversion": "2", "titles": "|".join(part),
+                  "prop": "categories", "clshow": "!hidden", "cllimit": "max"}
+        cats = {}
+        while True:
+            d = get("https://en.wikipedia.org/w/api.php", params)
+            for pg in d.get("query", {}).get("pages", []):
+                cats.setdefault(pg["title"], []).extend(c["title"] for c in pg.get("categories", []))
+            if "continue" not in d:
+                break
+            params = {**params, **d["continue"]}
+        ok_titles |= {t for t, cs in cats.items() if any(COMIC_CAT.search(c) for c in cs)}
+    print(f"    komiksová díla podle kategorií: {len(ok_titles)}/{len(cand)}", flush=True)
+
     added = 0
     for base, bucket in found.items():
         items = {}
@@ -451,6 +472,7 @@ def add_media_wiki(chars):
             continue
         for c in base_of[base]:
             who = (c.get("baseName") or c["name"]).lower()
+            items = {k: m for k, m in items.items() if k in ok_titles or who in m["name"].lower() or base.lower() in m["name"].lower()}
             for key in ("films", "tv"):
                 new = [dict((k, v) for k, v in m.items() if k != "kind") for m in items.values() if m["kind"] == key]
                 if not new:
