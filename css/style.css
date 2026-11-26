@@ -447,3 +447,14 @@ img { max-width: 100%; display: block; }
 @media (max-width: 360px) {
   .topbar a.home { font-size: 0; }             /* na velmi úzkých displejích jen logo-čtvereček */
 }
+
+/* Detail: dokud se nenačte obrázek z Fandomu, jen animovaný rámeček */
+.full-image .frame img { transition: opacity .35s var(--ease); }
+.full-image .frame.loading { min-height: min(68vh, 560px); position: relative; }
+.full-image .frame.loading img { opacity: 0; }
+.full-image .frame.loading::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, .35) 50%, transparent 70%) 0 0 / 250% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+@keyframes shimmer { from { background-position: 150% 0; } to { background-position: -100% 0; } }

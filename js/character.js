@@ -46,7 +46,12 @@ function renderBase(c) {
 
   // Obrázek z databáze / vlastní obrázek; Wikipedie ho případně nahradí větším
   $('full').alt = name;
-  setImage($('full'), c, () => $('full').closest('figure').hidden = true, 'full');
+  if (overrideFor(c, 'full') || !c.fandom) {
+    setImage($('full'), c, () => $('full').closest('figure').hidden = true, 'full');
+  } else {
+    // obrázek z Fandomu se načítá zvlášť – do té doby jen animovaný rámeček (žádné problikávání)
+    $('full').closest('.frame').classList.add('loading');
+  }
 
   specRows($('specs'), [
     [t('s.realName'), c.realName],
@@ -149,19 +154,35 @@ async function loadWiki(c) {
   // ---- Obrázek celé postavy: vlastní > Fandom
   const custom = overrideFor(c, 'full');
   const usingCustom = custom && $('full').src.endsWith(custom);
-  if (!usingCustom && fd?.image) {
-    // nový obrázek se nejdřív načte zvlášť a vymění se až po úspěšném načtení
-    const pre = new Image();
-    pre.referrerPolicy = 'no-referrer';
-    pre.onload = () => {
-      const img = $('full');
-      img.onerror = null;
-      img.classList.remove('custom');
-      img.src = fd.image;
-      img.closest('figure').hidden = false;
-      $('credit').replaceChildren(`${t('c.image')}: `, el('a', { href: fd.url, target: '_blank', rel: 'noopener', text: `${u.label} Fandom` }));
+  if (!usingCustom && c.fandom) {
+    const frame = $('full').closest('.frame');
+    let done = false;
+    const fallback = () => {          // Fandom obrázek není / nenačetl se → náhradní obrázek z databáze
+      if (done) return;
+      done = true;
+      frame.classList.remove('loading');
+      setImage($('full'), c, () => $('full').closest('figure').hidden = true, 'full');
     };
-    pre.src = fd.image;
+    if (fd?.image) {
+      const pre = new Image();
+      pre.referrerPolicy = 'no-referrer';
+      pre.onload = () => {
+        if (done) return;
+        done = true;
+        const img = $('full');
+        img.onerror = null;
+        img.classList.remove('custom');
+        img.src = fd.image;
+        frame.classList.remove('loading');
+        img.closest('figure').hidden = false;
+        $('credit').replaceChildren(`${t('c.image')}: `, el('a', { href: fd.url, target: '_blank', rel: 'noopener', text: `${u.label} Fandom` }));
+      };
+      pre.onerror = fallback;
+      pre.src = fd.image;
+      setTimeout(fallback, 10000);   // pojistka při velmi pomalém načítání
+    } else {
+      fallback();
+    }
   }
 
   // ---- Doplňující údaje z infoboxu Fandomu (jen co v databázi chybí)
