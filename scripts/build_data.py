@@ -223,6 +223,8 @@ def build(key, conf, akabab):
     for q, e in wd.items():
         title = e.get("title")
         name = e.get("label") or (re.sub(r"\s*\(.*\)$", "", title) if title else None)
+        if name:
+            name = re.sub(r"\s*\((comics|character|comic book character|DC Comics|Marvel Comics)\)$", "", name, flags=re.I)
         if not name or re.fullmatch(r"Q\d+", name):
             continue
         w = winfo.get(title) or {"img": None, "cats": []}
