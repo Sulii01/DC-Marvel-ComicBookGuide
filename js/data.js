@@ -19,25 +19,34 @@ export function nameOf(c) { return (lang === 'cs' && c.nameCs) || c.name; }
 export function descOf(c) { return lang === 'cs' ? (c.descCs || null) : (c.desc || null); }
 
 // Vlastní obrázky postav (Wikidata ID -> soubor v assets/characters/).
+// Řetězec = stejný obrázek všude; objekt { head, full } = zvlášť hlava pro seznam a celé tělo pro detail.
 // Když soubor chybí, použije se automaticky obrázek z databáze.
 export const IMAGE_OVERRIDES = {
   Q2695156: 'assets/characters/batman.jpg',              // Batman
   Q63197020: 'assets/characters/batman-who-laughs.webp', // The Batman Who Laughs
 };
 
-export function imageFor(c) {
-  return IMAGE_OVERRIDES[c.id] || c.img || null;
+export function overrideFor(c, kind = 'head') {
+  const o = IMAGE_OVERRIDES[c.id];
+  if (!o) return null;
+  return typeof o === 'string' ? o : (o[kind] || o.full || o.head || null);
 }
 
-// Nastaví obrázek s náhradou: vlastní obrázek -> databáze -> nic
-export function setImage(img, c, onNone) {
-  const list = [IMAGE_OVERRIDES[c.id], c.img].filter(Boolean);
+// Nastaví obrázek s náhradou: vlastní obrázek -> databáze -> nic.
+// Po načtení označí vysoké (celopostavové) obrázky třídou „tall“ – seznam je přiblíží víc na hlavu.
+export function setImage(img, c, onNone, kind = 'head') {
+  const list = [overrideFor(c, kind), c.img].filter(Boolean);
   const next = () => {
     const src = list.shift();
     if (src) img.src = src;
     else { img.onerror = null; onNone?.(); }
   };
   img.onerror = next;
+  img.addEventListener('load', () => {
+    const r = img.naturalHeight / (img.naturalWidth || 1);
+    img.classList.toggle('tall', r > 1.25);
+    img.classList.toggle('very-tall', r > 1.7);
+  });
   next();
 }
 
@@ -67,7 +76,7 @@ export function clean(v) {
 }
 
 export function initials(name) {
-  return name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+  return name.replace(/\(.*\)/g, '').split(/[\s-]+/).map(w => w.replace(/[^\p{L}\p{N}]/gu, '')).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
 }
 
 export function el(tag, attrs = {}, ...children) {

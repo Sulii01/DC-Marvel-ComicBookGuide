@@ -1,4 +1,4 @@
-import { getUniverse, loadOne, ALIGNMENT, IMAGE_OVERRIDES, clean, el, setImage, nameOf, descOf } from './data.js';
+import { getUniverse, loadOne, ALIGNMENT, overrideFor, clean, el, setImage, nameOf, descOf } from './data.js';
 import { t, tv, lang, loadDictionary } from './i18n.js';
 
 const u = getUniverse();
@@ -39,7 +39,7 @@ function renderBase(c) {
 
   // Obrázek z databáze / vlastní obrázek; Wikipedie ho případně nahradí větším
   $('full').alt = name;
-  setImage($('full'), c, () => $('full').closest('figure').hidden = true);
+  setImage($('full'), c, () => $('full').closest('figure').hidden = true, 'full');
 
   specRows($('specs'), [
     [t('s.realName'), c.realName],
@@ -209,7 +209,7 @@ async function loadWiki(c) {
     // Obrázek celé postavy z infoboxu
     const infoImg = doc.querySelector('.infobox img');
     // vlastní obrázek (pokud se načetl) má přednost před Wikipedií
-    const custom = IMAGE_OVERRIDES[c.id];
+    const custom = overrideFor(c, 'full');
     if (infoImg && !(custom && $('full').src.endsWith(custom))) {
       let src = infoImg.getAttribute('src');
       if (src.startsWith('//')) src = 'https:' + src;

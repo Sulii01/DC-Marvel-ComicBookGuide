@@ -58,7 +58,7 @@ function render() {
   const frag = document.createDocumentFragment();
   for (const c of list) {
     const a = ALIGNMENT[c.align];
-    const avatar = el('div', { class: 'avatar' });
+    const avatar = el('div', { class: 'avatar backdrop' });
     const img = el('img', { alt: c.display, loading: 'lazy', width: 320, height: 320 });
     avatar.append(img);
     setImage(img, c, () => img.replaceWith(el('span', { class: 'initials', text: initials(c.display) })));
