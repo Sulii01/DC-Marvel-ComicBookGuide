@@ -22,7 +22,7 @@ export function descOf(c) { return lang === 'cs' ? (c.descCs || null) : (c.desc 
 // Řetězec = stejný obrázek všude; objekt { head, full } = zvlášť hlava pro seznam a celé tělo pro detail.
 // Když soubor chybí, použije se automaticky obrázek z databáze.
 export const IMAGE_OVERRIDES = {
-  Q2695156: 'assets/characters/batman.jpg',              // Batman
+  Q2695156: { head: 'assets/characters/batman-head.png', full: 'assets/characters/batman-full.webp' }, // Batman
   Q63197020: 'assets/characters/batman-who-laughs.webp', // The Batman Who Laughs
 };
 
@@ -35,9 +35,12 @@ export function overrideFor(c, kind = 'head') {
 // Nastaví obrázek s náhradou: vlastní obrázek -> databáze -> nic.
 // Po načtení označí vysoké (celopostavové) obrázky třídou „tall“ – seznam je přiblíží víc na hlavu.
 export function setImage(img, c, onNone, kind = 'head') {
-  const list = [overrideFor(c, kind), c.img].filter(Boolean);
+  const custom = overrideFor(c, kind);
+  const list = [custom, c.img].filter(Boolean);
   const next = () => {
     const src = list.shift();
+    // vlastní obrázky se zobrazují tak, jak jsou (bez prolnutí do rastru)
+    img.classList.toggle('custom', !!src && src === custom);
     if (src) img.src = src;
     else { img.onerror = null; onNone?.(); }
   };

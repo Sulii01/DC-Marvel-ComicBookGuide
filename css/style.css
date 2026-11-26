@@ -258,3 +258,4 @@ body.dc { --paper: #e9f2ff; --paper-2: #a9c8f5; }
 /* Detail: celé tělo bez ořezu */
 .full-image .frame { border-radius: 10px; overflow: hidden; display: flex; justify-content: center; padding: 18px 12px 0; isolation: isolate; }
 .full-image .frame img { max-height: 76vh; width: auto; object-fit: contain; }
+.backdrop img.custom { mix-blend-mode: normal; }
