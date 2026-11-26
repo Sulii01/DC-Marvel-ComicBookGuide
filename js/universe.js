@@ -83,7 +83,7 @@ try {
   characters = await loadAll(u.key);
   for (const c of characters) {
     c.display = nameOf(c);
-    c.search = [c.name, c.nameCs, c.realName, ...(c.aliases || [])].filter(Boolean).join(' | ').toLowerCase();
+    c.search = [c.name, c.nameCs, c.realName, c.alias, ...(c.aliases || [])].filter(Boolean).join(' | ').toLowerCase();
   }
   // Při změně filtru odscrollovat na začátek výsledků (filtr zůstává ukotvený nahoře)
   const toResults = () => {

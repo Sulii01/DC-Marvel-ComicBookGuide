@@ -58,7 +58,18 @@ export function getUniverse() {
   return UNIVERSES[key] || null;
 }
 
+// data/<univerzum>.json = lehký index pro seznam postav,
+// data/<univerzum>/NN.json = detaily postav rozdělené do 64 souborů (stejný výpočet jako ve scripts/build_fandom.py)
+const SHARDS = 64;
 const cache = {};
+const shardCache = {};
+
+export function shardOf(id) {
+  let h = 0;
+  for (const ch of id) h = (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0;
+  return h % SHARDS;
+}
+
 export async function loadAll(key) {
   if (cache[key]) return cache[key];
   const res = await fetch(`data/${key}.json`);
@@ -67,7 +78,10 @@ export async function loadAll(key) {
 }
 
 export async function loadOne(key, id) {
-  const c = (await loadAll(key)).find(x => x.id === id);
+  const n = String(shardOf(id)).padStart(2, '0');
+  const url = `data/${key}/${n}.json`;
+  shardCache[url] ??= fetch(url).then(r => (r.ok ? r.json() : {})).catch(() => ({}));
+  const c = (await shardCache[url])[id];
   if (!c) throw new Error(t('c.notFound'));
   return c;
 }

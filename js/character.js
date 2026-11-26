@@ -53,28 +53,40 @@ function renderBase(c) {
     $('full').closest('.frame').classList.add('loading');
   }
 
+  // údaje z Wikidat mají přednost, chybějící doplní pole z infoboxu Fandomu (klíče s „F“)
+  const fx = v => Array.isArray(v) ? v.map(fx).filter(Boolean) : (v ? fandomWords(tv(v) || '') : v);
+  const first = c.firstApp || c.firstF;
   specRows($('specs'), [
     [t('s.realName'), c.realName],
-    [t('s.birthplace'), tv(c.birthplace)],
-    [t('s.firstApp'), c.firstApp ? `${c.firstApp}${c.year && !String(c.firstApp).includes(c.year) ? ` (${c.year})` : ''}` : (c.year ? String(c.year) : '')],
+    [t('s.currentAlias'), c.alias && c.alias !== name ? c.alias : ''],
+    [t('s.identity'), fx(c.identity)],
+    [t('s.birthplace'), fx(c.birthplace || c.birthplaceF)],
+    [t('s.citizenship'), fx(c.citizenship)],
+    [t('s.universe'), c.universe],
+    [t('s.origin'), fx(c.origin)],
+    [t('s.firstApp'), first ? `${first}${c.year && !String(first).includes(c.year) ? ` (${c.year})` : ''}` : (c.year ? String(c.year) : '')],
     [t('s.publisher'), u.publisher],
-    [t('s.creators'), c.creators],
-    [t('s.occupation'), tv(c.occupation)],
-    [t('s.base'), c.base],
+    [t('s.creators'), c.creators?.length ? c.creators : c.creatorsF],
+    [t('s.occupation'), fx(c.occupation?.length ? c.occupation : c.occupationF)],
+    [t('s.education'), fx(c.education)],
+    [t('s.base'), fx(c.base)],
+    [t('s.marital'), fx(c.marital)],
   ]);
-  chipRow($('specs'), t('s.aliases'), c.aliases);
-  chipRow($('specs'), t('s.teams'), tv(c.teams));
+  chipRow($('specs'), t('s.aliases'), [...new Set([...(c.aliases || []), ...(c.aliasesF || []), ...(c.nicknames || [])])].slice(0, 30));
+  chipRow($('specs'), t('s.teams'), tv(c.teams?.length ? c.teams : c.affiliation));
   chipRow($('specs'), t('s.abilities'), tv(c.abilities));
-  chipRow($('specs'), t('s.relatives'), tv(c.relatives));
+  chipRow($('specs'), t('s.relatives'), tv(c.relatives?.length ? c.relatives : c.relativesF));
   chipRow($('specs'), t('s.enemies'), tv(c.enemies));
 
   specRows($('appearance'), [
-    [t('s.gender'), tv(c.gender)],
+    [t('s.gender'), fx(c.gender || c.genderF)],
     [t('s.species'), tv(c.species)],
     [t('s.height'), c.height],
     [t('s.weight'), c.weight],
-    [t('s.eyes'), tv(c.eyes)],
-    [t('s.hair'), tv(c.hair)],
+    [t('s.eyes'), fx(c.eyes || c.eyesF)],
+    [t('s.hair'), fx(c.hair || c.hairF)],
+    [t('s.skin'), fx(c.skin)],
+    [t('s.features'), c.features],
   ]);
   if (!$('appearance').children.length) $('appearance').closest('.panel').hidden = true;
 
@@ -221,24 +233,32 @@ async function loadWiki(c) {
 }
 
 // Údaje z infoboxu Fandomu, které v databázi chybí
+// slova z Fandomu, která se v hodnotách často opakují
+function fandomWords(x) {
+  return lang === 'cs' ? String(x).replace(/\bFormerly\b/gi, 'dříve').replace(/\bUnknown\b/gi, 'neznámé')
+    .replace(/\bNone\b/g, 'žádné').replace(/\bPublic\b/g, 'veřejná').replace(/\bSecret\b/g, 'tajná')
+    .replace(/\bDeceased\b/gi, 'zesnulý').replace(/\bSingle\b/g, 'svobodný/á').replace(/\bMarried\b/g, 'ženatý / vdaná')
+    .replace(/\bWidowed\b/g, 'ovdovělý/á').replace(/\bDivorced\b/g, 'rozvedený/á') : x;
+}
+
+// Údaje z infoboxu Fandomu načtené živě – jen pro postavy, které je v datech ještě nemají
 function addFandomSpecs(c, f) {
   const specs = $('specs'), look = $('appearance');
   const add = (target, label, value) => {
     if (!value) return;
-    const words = x => lang === 'cs' ? x.replace(/\bFormerly\b/gi, 'dříve').replace(/\bUnknown\b/gi, 'neznámé').replace(/\bNone\b/g, 'žádné') : x;
-    target.append(el('dt', { text: label }), el('dd', { text: value.split('; ').map(x => words(tv(x) || '')).filter(Boolean).join(', ') }));
+    target.append(el('dt', { text: label }), el('dd', { text: value.split('; ').map(x => fandomWords(tv(x) || '')).filter(Boolean).join(', ') }));
     target.closest('.panel').hidden = false;
   };
   if (!c.realName && f.RealName) add(specs, t('s.realName'), f.RealName);
   if (!c.base && f.BaseOfOperations) add(specs, t('s.base'), f.BaseOfOperations);
-  if (f.Universe) add(specs, t('s.universe'), f.Universe);
-  if (f.Citizenship) add(specs, t('s.citizenship'), f.Citizenship);
-  if (!c.birthplace && f.PlaceOfBirth) add(specs, t('s.birthplace'), f.PlaceOfBirth);
-  if (f.Origin) add(specs, t('s.origin'), f.Origin);
+  if (!c.universe && f.Universe) add(specs, t('s.universe'), f.Universe);
+  if (!c.citizenship && f.Citizenship) add(specs, t('s.citizenship'), f.Citizenship);
+  if (!c.birthplace && !c.birthplaceF && f.PlaceOfBirth) add(specs, t('s.birthplace'), f.PlaceOfBirth);
+  if (!c.origin && f.Origin) add(specs, t('s.origin'), f.Origin);
   if (!c.height && f.Height) add(look, t('s.height'), f.Height);
   if (!c.weight && f.Weight) add(look, t('s.weight'), f.Weight);
-  if (!c.eyes && f.Eyes) add(look, t('s.eyes'), f.Eyes);
-  if (!c.hair && f.Hair) add(look, t('s.hair'), f.Hair);
+  if (!c.eyes && !c.eyesF && f.Eyes) add(look, t('s.eyes'), f.Eyes);
+  if (!c.hair && !c.hairF && f.Hair) add(look, t('s.hair'), f.Hair);
 }
 
 // Strojový překlad anglického příběhu do češtiny (vestavěný překladač prohlížeče)

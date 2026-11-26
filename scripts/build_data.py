@@ -356,6 +356,8 @@ def add_fandom(chars, key):
 # ---------------------------------------------------------------- Filmy a seriály z Wikipedie
 
 MEDIA_SUFFIXES = ("in film", "in television", "in other media")
+# samostatné články o filmové verzi postavy (např. „Thanos (Marvel Cinematic Universe)“)
+FRANCHISE_SUFFIXES = ("(Marvel Cinematic Universe)", "(DC Extended Universe)", "(DC Universe)")
 SKIP_SECTION = re.compile(r"^(references|notes|external links|see also|video games?|novels?|books?|music|comics|toys|"
                           r"theme parks?|merchandise|literature|radio|stage|further reading|bibliography)", re.I)
 TV_DESC = re.compile(r"television|tv series|web series|miniseries|animated series|anime|streaming series", re.I)
@@ -388,7 +390,7 @@ def add_media_wiki(chars):
     for c in chars:
         if c.get("wiki"):
             base_of.setdefault(re.sub(r"\s*\([^)]*\)$", "", c["wiki"]), []).append(c)
-    cands = [f"{b} {suf}" for b in base_of for suf in MEDIA_SUFFIXES]
+    cands = [f"{b} {suf}" for b in base_of for suf in MEDIA_SUFFIXES + FRANCHISE_SUFFIXES]
     exists = {}
     for part in chunks(cands, 50):
         d = get("https://en.wikipedia.org/w/api.php", {"action": "query", "format": "json", "formatversion": "2",
@@ -404,12 +406,12 @@ def add_media_wiki(chars):
 
     found = {}   # base -> {"films": [titles], "tv": [titles], "other": [titles]}
     for cand, page in exists.items():
-        base, suf = next((cand[:-len(x) - 1], x) for x in MEDIA_SUFFIXES if cand.endswith(x))
+        base, suf = next((cand[:-len(x) - 1], x) for x in MEDIA_SUFFIXES + FRANCHISE_SUFFIXES if cand.endswith(x))
         d = get("https://en.wikipedia.org/w/api.php", {"action": "parse", "format": "json", "formatversion": "2",
                                                         "page": page, "prop": "text", "disableeditsection": "1"})
         html = d.get("parse", {}).get("text", "")
         bucket = found.setdefault(base, {"films": [], "tv": [], "other": []})
-        default = "films" if suf == "in film" else "tv" if suf == "in television" else "other"
+        default = "films" if suf == "in film" or suf in FRANCHISE_SUFFIXES else "tv" if suf == "in television" else "other"
         parts = re.split(r'<h2[^>]*>', html)
         for i, part in enumerate(parts):
             head = re.sub(r"<[^>]+>", "", part[:300].split("</h2>")[0]).strip() if i else ""
@@ -424,7 +426,7 @@ def add_media_wiki(chars):
     MEDIA_HEAD = re.compile(r"in other media|other media|adaptations|in film|in television|film|television", re.I)
     main_pages = {}
     for base, cs in base_of.items():
-        if base in found:
+        if any(c.endswith(" " + x) and c[:-len(x) - 1] == base for c in exists for x in MEDIA_SUFFIXES):
             continue
         if any(c.get("films") or c.get("tv") or (c.get("apps") or 0) >= 150 for c in cs):
             main_pages[base] = cs[0]["wiki"]
@@ -447,7 +449,9 @@ def add_media_wiki(chars):
                        "tv" if re.search(r"television|tv|animat|series|web", sub_head, re.I) else "other"
                 bucket[kind] += _italic_links(sub_part)
         if any(bucket.values()):
-            found[base] = bucket
+            old = found.setdefault(base, {"films": [], "tv": [], "other": []})
+            for k, v in bucket.items():
+                old[k] += v
         if n % 200 == 0:
             print(f"    články postav {n}/{len(main_pages)}", flush=True)
 
