@@ -227,6 +227,11 @@ def build(key, conf, akabab):
             continue
         w = winfo.get(title) or {"img": None, "cats": []}
         fa_label, year = e.get("firstApp"), e.get("year")
+        # Wikipedie: kategorie „Comics characters introduced in 1963“ apod.
+        cat_years = [int(m.group(1)) for cat in w["cats"]
+                     for m in [re.search(r"introduced in (\d{4})$", cat)] if m]
+        if cat_years:
+            year = min([year] + cat_years) if year else min(cat_years)
         real = " ".join((e.get("given") or [])[:1] + (e.get("family") or [])[:1])
         types = [t for t in e.get("types", []) if not GENERIC_TYPES.match(t)]
 
