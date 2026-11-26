@@ -400,8 +400,12 @@ def add_media_wiki(chars):
         for x in q.get("normalized", []) + q.get("redirects", []):
             back[x["to"]] = back.get(x["from"], x["from"])
         for pg in q.get("pages", []):
+            orig = back.get(pg["title"], pg["title"])
+            # článek o filmové verzi postavy jen tehdy, když nepřesměrovává na obecný seznam
+            if orig.endswith(FRANCHISE_SUFFIXES) and not pg["title"].endswith(FRANCHISE_SUFFIXES):
+                continue
             if not pg.get("missing"):
-                exists[back.get(pg["title"], pg["title"])] = pg["title"]
+                exists[orig] = pg["title"]
     print(f"    články o filmech/seriálech: {len(exists)}", flush=True)
 
     found = {}   # base -> {"films": [titles], "tv": [titles], "other": [titles]}
