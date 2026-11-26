@@ -21,7 +21,8 @@ export function descOf(c) { return lang === 'cs' ? (c.descCs || null) : (c.desc 
 // Vlastní obrázky postav (Wikidata ID -> soubor v assets/characters/).
 // Když soubor chybí, použije se automaticky obrázek z databáze.
 export const IMAGE_OVERRIDES = {
-  Q2695156: 'assets/characters/batman.jpg',   // Batman
+  Q2695156: 'assets/characters/batman.jpg',              // Batman
+  Q63197020: 'assets/characters/batman-who-laughs.webp', // The Batman Who Laughs
 };
 
 export function imageFor(c) {

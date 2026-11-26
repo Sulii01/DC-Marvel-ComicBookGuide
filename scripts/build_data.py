@@ -273,6 +273,85 @@ def build(key, conf, akabab):
     return chars
 
 
+# ---------------------------------------------------------------- Stejná jména
+
+GENERIC_PAREN = re.compile(r"^(comics|character|comic book character|DC Comics|Marvel Comics|DC Comics character|"
+                           r"Marvel Comics character|superhero|supervillain|comics character)$", re.I)
+AKABAB_KEYS = ("powerstats", "height", "weight", "base")
+
+
+def _strip(title):
+    return re.sub(r"\s*\([^)]*\)$", "", title or "")
+
+
+def _paren(title):
+    m = re.search(r"\(([^)]*)\)$", title or "")
+    return m.group(1) if m and not GENERIC_PAREN.match(m.group(1)) else None
+
+
+def _short(text, n=40):
+    return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + "…"
+
+
+def disambiguate(chars):
+    """Postavy se stejným jménem (Batman, Black Widow…) rozliší dovětkem v závorce.
+    Hlavní postava (článek na Wikipedii se stejným názvem) jméno nemění."""
+    groups = {}
+    for c in chars:
+        c["name"] = re.sub(r"\s+\(.*\)$", "", c["name"]) if c.get("baseName") else c["name"]
+        groups.setdefault(c["name"].lower(), []).append(c)
+    for same in groups.values():
+        if len(same) < 2:
+            continue
+        def rank(c):
+            exact = _strip(c.get("wiki")).lower() == c["name"].lower() and not _paren(c.get("wiki"))
+            return (not exact, not c.get("wiki"), c.get("year") or 9999, int(c["id"][1:]))
+        same.sort(key=rank)
+        exact = rank(same[0])[0] is False
+        primary = same[0] if exact else None
+        # data ze Superhero API patří jen jedné (nejznámější) verzi
+        fame = lambda c: len(c.get("films", [])) + len(c.get("tv", [])) + len(c.get("teams", [])) + bool(c.get("wiki")) * 5
+        owner = primary or max(same, key=fame)
+        akabab_img = next((c["img"] for c in same if "akabab" in (c.get("img") or "")), None)
+        akabab = next(({k: c[k] for k in AKABAB_KEYS if k in c} for c in same if "powerstats" in c), {})
+        for c in same:
+            if c is not owner:
+                if "akabab" in (c.get("img") or ""):
+                    c.pop("img", None)
+                for k in AKABAB_KEYS:
+                    c.pop(k, None)
+        owner.update(akabab)
+        if akabab_img and not owner.get("img"):
+            owner["img"] = akabab_img
+        for c in same:
+            if c is primary:
+                continue
+            wiki, base = c.get("wiki"), _strip(c.get("wiki"))
+            if wiki and _paren(wiki):
+                tag = _paren(wiki)
+            elif wiki and base.lower() != c["name"].lower():
+                tag = base
+            elif c.get("realName") and c["realName"] != (primary or {}).get("realName"):
+                tag = c["realName"]
+            elif c.get("desc"):
+                m = re.search(r"in (?:the )?(.+?)(?: [Uu]niverse)?$", c["desc"])
+                tag = _short(m.group(1) if m and "alternate" in c["desc"] else c["desc"])
+            else:
+                tag = str(c.get("year") or c["id"])
+            c["baseName"] = c["name"]
+            c["name"] = f'{c["name"]} ({tag})'
+            if c.get("nameCs"):
+                c["nameCs"] = f'{c["nameCs"]} ({tag})'
+        # pořád stejné? doplnit rok / ID
+        seen = {}
+        for c in same:
+            seen.setdefault(c["name"].lower(), []).append(c)
+        for lst in seen.values():
+            for c in lst[1:]:
+                c["name"] = f'{c["name"][:-1]}, {c.get("year") or c["id"]})' if c["name"].endswith(")") else f'{c["name"]} ({c.get("year") or c["id"]})'
+    chars.sort(key=lambda c: c["name"].lower())
+
+
 # ---------------------------------------------------------------- Čeština
 
 ALL_PROPS = sorted({p for props in PROPS.values() for p in props})
@@ -364,6 +443,7 @@ def main():
         add_czech(chars, dictionary)
         print(f"[{key}] filmy a seriály…", flush=True)
         add_media(chars)
+        disambiguate(chars)
         (OUT / f"{key}.json").write_text(json.dumps(chars, ensure_ascii=False, separators=(",", ":")))
         print(f"[{key}] hotovo: {len(chars)} postav, {sum(1 for c in chars if c.get('img'))} s obrázkem, "
               f"{sum(1 for c in chars if c.get('wikiCs'))} s českým článkem, "
@@ -372,5 +452,14 @@ def main():
     print(f"slovník: {len(dictionary)} výrazů", flush=True)
 
 
+def postprocess_only():
+    """Jen přepočítá rozlišení stejných jmen v hotových datech (bez stahování)."""
+    for key in UNIVERSES:
+        f = OUT / f"{key}.json"
+        chars = json.loads(f.read_text())
+        disambiguate(chars)
+        f.write_text(json.dumps(chars, ensure_ascii=False, separators=(",", ":")))
+
+
 if __name__ == "__main__":
-    main()
+    postprocess_only() if "--postprocess" in sys.argv else main()
