@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Comic Book Guide – Marvel &amp; DC</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&family=Oswald:wght@700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main class="landing">
+    <h1>Comic Book Guide</h1>
+    <p class="lead">Vyber si univerzum. Hrdinové, záporáci, antihrdinové – všichni na jednom místě.</p>
+
+    <nav class="choices" aria-label="Výběr univerza">
+      <a class="logo-link marvel" href="universe.html?u=marvel" aria-label="Marvel">
+        <!-- Oficiální logo: ulož soubor jako assets/marvel-logo.png a zobrazí se místo textu -->
+        <img src="assets/marvel-logo.png" alt="Marvel" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'logo-text marvel',textContent:'MARVEL'}))">
+      </a>
+      <a class="logo-link dc" href="universe.html?u=dc" aria-label="DC">
+        <!-- Oficiální logo: ulož soubor jako assets/dc-logo.png -->
+        <img src="assets/dc-logo.png" alt="DC" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'logo-text dc',textContent:'DC'}))">
+      </a>
+    </nav>
+
+    <p class="note">Neoficiální fanouškovský web. Marvel a DC a všechny postavy jsou ochranné známky svých vlastníků.
+      Data postav: Superhero API (akabab) · Příběhy a seznamy komiksů: Wikipedie (CC BY-SA).</p>
+  </main>
+</body>
+</html>

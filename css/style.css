@@ -1,0 +1,197 @@
+:root {
+  --bg: #0d0f14;
+  --panel: #161a22;
+  --panel-2: #1e2430;
+  --text: #eef1f6;
+  --muted: #9aa3b2;
+  --line: #2a3140;
+  --accent: #e62429;          /* přepisuje se podle univerza */
+  --hero: #2fbf71;
+  --villain: #e5484d;
+  --neutral: #f5a524;
+  --radius: 14px;
+}
+body.marvel { --accent: #e62429; }
+body.dc     { --accent: #0476f2; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.55;
+  min-height: 100vh;
+}
+a { color: inherit; }
+img { max-width: 100%; display: block; }
+
+/* ---------- Hlavička ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 16px;
+  padding: 12px 20px;
+  background: rgba(13, 15, 20, .92);
+  backdrop-filter: blur(8px);
+  border-bottom: 3px solid var(--accent);
+}
+.topbar a.home { text-decoration: none; font-weight: 800; letter-spacing: .04em; }
+.topbar .crumbs { color: var(--muted); font-size: 14px; }
+.topbar .crumbs a { color: var(--text); }
+.topbar .switch { margin-left: auto; font-size: 14px; color: var(--muted); }
+
+.wrap { max-width: 1280px; margin: 0 auto; padding: 24px 16px 64px; }
+
+/* ---------- Úvodní stránka ---------- */
+.landing {
+  min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 40px; padding: 40px 16px;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(230, 36, 41, .25), transparent 45%),
+    radial-gradient(circle at 80% 70%, rgba(4, 118, 242, .25), transparent 45%),
+    var(--bg);
+}
+.landing h1 { margin: 0; font-size: clamp(28px, 5vw, 48px); text-align: center; letter-spacing: .02em; }
+.landing p.lead { margin: 0; color: var(--muted); text-align: center; max-width: 560px; }
+.choices { display: flex; gap: 40px; flex-wrap: wrap; justify-content: center; }
+
+.logo-link {
+  display: flex; align-items: center; justify-content: center;
+  width: min(340px, 86vw); height: 200px;
+  text-decoration: none; border-radius: 18px;
+  transition: transform .2s ease, box-shadow .2s ease;
+  box-shadow: 0 10px 30px rgba(0,0,0,.5);
+  overflow: hidden;
+}
+.logo-link:hover, .logo-link:focus-visible { transform: translateY(-6px) scale(1.03); }
+.logo-link img { max-width: 80%; max-height: 80%; object-fit: contain; }
+.logo-link.marvel { background: #e62429; }
+.logo-link.marvel:hover { box-shadow: 0 16px 50px rgba(230, 36, 41, .6); }
+.logo-link.dc { background: #fff; }
+.logo-link.dc:hover { box-shadow: 0 16px 50px rgba(4, 118, 242, .6); }
+
+/* Textová podoba loga – použije se, dokud do assets/ nedáš oficiální logo */
+.logo-text.marvel {
+  color: #fff; font-family: "Oswald", Impact, "Arial Narrow", sans-serif;
+  font-size: 68px; font-weight: 700; letter-spacing: .01em;
+}
+.logo-text.dc {
+  width: 140px; height: 140px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: #0476f2; color: #fff; border: 6px solid #0476f2;
+  box-shadow: inset 0 0 0 4px #fff;
+  font-family: "Oswald", Impact, sans-serif; font-size: 64px; font-weight: 700;
+}
+.landing .note { color: var(--muted); font-size: 13px; text-align: center; max-width: 620px; }
+
+/* ---------- Seznam postav ---------- */
+.universe-head { display: flex; flex-wrap: wrap; align-items: end; gap: 16px; margin-bottom: 20px; }
+.universe-head h1 { margin: 0; font-size: clamp(26px, 4vw, 40px); }
+.universe-head .count { color: var(--muted); }
+
+.toolbar {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  padding: 14px; margin-bottom: 24px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.toolbar label { font-size: 13px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.toolbar input, .toolbar select {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 9px 12px; font-size: 15px; min-width: 180px;
+}
+.toolbar input:focus, .toolbar select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.grid {
+  display: grid; gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.card {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  text-decoration: none; text-align: center;
+}
+.card .name {
+  font-weight: 700; font-size: 15px; line-height: 1.2;
+  min-height: 2.4em; display: flex; align-items: flex-end; justify-content: center;
+}
+.card .avatar {
+  width: 100%; aspect-ratio: 1 / 1;
+  border-radius: 50%; overflow: hidden;
+  border: 4px solid var(--line);
+  background: var(--panel-2);
+  transition: border-color .2s, transform .2s;
+}
+.card .avatar img { width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+.card:hover .avatar, .card:focus-visible .avatar { border-color: var(--accent); transform: scale(1.05); }
+.card .meta { font-size: 12px; color: var(--muted); }
+
+.badge {
+  display: inline-block; padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; letter-spacing: .03em;
+  border: 1px solid currentColor;
+}
+.badge.good { color: var(--hero); }
+.badge.bad { color: var(--villain); }
+.badge.neutral { color: var(--neutral); }
+
+.state { color: var(--muted); padding: 40px 0; text-align: center; }
+.state.error { color: var(--villain); }
+
+/* ---------- Detail postavy ---------- */
+.hero-layout { display: grid; grid-template-columns: minmax(260px, 420px) 1fr; gap: 32px; align-items: start; }
+@media (max-width: 860px) { .hero-layout { grid-template-columns: 1fr; } }
+
+.full-image {
+  background: radial-gradient(circle at 50% 30%, var(--panel-2), var(--panel));
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 16px; position: sticky; top: 80px;
+}
+@media (max-width: 860px) { .full-image { position: static; } }
+.full-image img { margin: 0 auto; max-height: 78vh; object-fit: contain; }
+.full-image .credit { font-size: 12px; color: var(--muted); margin-top: 8px; text-align: center; }
+
+.char-title h1 { margin: 0; font-size: clamp(32px, 5vw, 54px); line-height: 1.05; }
+.char-title .real { color: var(--muted); font-size: 18px; margin: 6px 0 12px; }
+
+.panel {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 20px; margin-top: 24px;
+}
+.panel h2 {
+  margin: 0 0 14px; font-size: 20px; text-transform: uppercase; letter-spacing: .06em;
+  border-left: 4px solid var(--accent); padding-left: 10px;
+}
+.panel h3 { margin: 22px 0 8px; font-size: 17px; color: var(--accent); }
+.panel h4 { margin: 16px 0 6px; font-size: 15px; }
+
+.specs { display: grid; grid-template-columns: max-content 1fr; gap: 8px 20px; margin: 0; }
+.specs dt { color: var(--muted); font-size: 14px; }
+.specs dd { margin: 0; }
+@media (max-width: 520px) { .specs { grid-template-columns: 1fr; } .specs dd { margin-bottom: 8px; } }
+
+.stats { display: grid; gap: 10px; }
+.stat { display: grid; grid-template-columns: 110px 1fr 36px; align-items: center; gap: 10px; font-size: 14px; }
+.stat .bar { height: 10px; border-radius: 99px; background: var(--panel-2); overflow: hidden; }
+.stat .bar span { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.stat .val { text-align: right; color: var(--muted); }
+
+.bio p { margin: 0 0 12px; }
+.bio.collapsed { max-height: 520px; overflow: hidden; position: relative; }
+.bio.collapsed::after {
+  content: ""; position: absolute; inset: auto 0 0 0; height: 120px;
+  background: linear-gradient(transparent, var(--panel));
+}
+.btn {
+  background: var(--accent); color: #fff; border: 0; border-radius: 10px;
+  padding: 10px 16px; font-weight: 700; cursor: pointer; margin-top: 12px;
+}
+.source { font-size: 13px; color: var(--muted); margin-top: 14px; }
+
+.comics { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; padding: 0; margin: 0; list-style: none; }
+.comics li {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; font-size: 14px;
+}
+.comics li.first { border-color: var(--accent); }
+.comics li small { display: block; color: var(--muted); font-size: 12px; }

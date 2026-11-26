@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Postavy – Comic Book Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="home" href="index.html">⟵ COMIC BOOK GUIDE</a>
+    <span class="switch" id="switch"></span>
+  </header>
+
+  <main class="wrap">
+    <div class="universe-head">
+      <h1 id="title">Postavy</h1>
+      <span class="count" id="count"></span>
+    </div>
+
+    <form class="toolbar" id="toolbar" onsubmit="return false">
+      <label>Hledat
+        <input type="search" id="q" placeholder="Jméno postavy…" autocomplete="off">
+      </label>
+      <label>Řadit
+        <select id="sort">
+          <option value="az">A → Z</option>
+          <option value="za">Z → A</option>
+          <option value="new">Od nejnovějších</option>
+          <option value="old">Od nejstarších</option>
+        </select>
+      </label>
+      <label>Typ postavy
+        <select id="align">
+          <option value="">Všechny</option>
+          <option value="good">Hrdinové</option>
+          <option value="bad">Záporáci</option>
+          <option value="neutral">Antihrdinové / neutrální</option>
+        </select>
+      </label>
+    </form>
+
+    <div id="state" class="state">Načítám postavy…</div>
+    <div class="grid" id="grid"></div>
+  </main>
+
+  <script type="module" src="js/universe.js"></script>
+</body>
+</html>
