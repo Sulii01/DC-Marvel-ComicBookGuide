@@ -1,5 +1,6 @@
 import { getUniverse, loadOne, ALIGNMENT, overrideFor, clean, el, setImage, nameOf, descOf } from './data.js';
-import { t, tv, lang, loadDictionary } from './i18n.js';
+import { t, tv, lang, loadDictionary, translateEnglish } from './i18n.js';
+import { loadFandomPage, loadAppearances, loadIssueCovers, issueLabel, fandomUrl } from './fandom.js';
 
 const u = getUniverse();
 const id = new URLSearchParams(location.search).get('id');
@@ -33,6 +34,12 @@ function renderBase(c) {
   $('real').textContent = c.realName && c.realName !== name ? c.realName : '';
   const desc = descOf(c);
   if (desc) $('real').after(el('p', { class: 'desc', text: desc }));
+  else if (lang === 'cs' && c.desc) {
+    // český popis chybí – přeložit anglický, jinak nezobrazovat
+    const p = el('p', { class: 'desc', text: c.desc, hidden: '' });
+    $('real').after(p);
+    translateEnglish([p]).then(r => { if (r === 'done') p.hidden = false; });
+  }
 
   const a = ALIGNMENT[c.align];
   if (a) $('badges').append(el('span', { class: `badge ${a.cls}`, text: a.label }));
@@ -191,63 +198,172 @@ async function loadWiki(c) {
   const origin = $('origin');
   const comics = $('comics');
 
-  // Vždy zobrazit první výskyt jako první komiks
-  const first = clean(c.firstApp);
-  const items = [];
-  if (first) items.push({ title: first, note: t('c.firstApp'), first: true });
-
-  let title;
-  try {
-    title = await findArticle(c);
-    if (!title) throw new Error('404');
+  // Fandom (DC Database / Marvel Database) a Wikipedie se načítají souběžně
+  const fandomP = c.fandom ? loadFandomPage(u.key, c.fandom).catch(() => null) : Promise.resolve(null);
+  const wikiP = (async () => {
+    const title = await findArticle(c);
+    if (!title) return null;
     const data = await wiki({ action: 'parse', page: title, prop: 'text', redirects: '1', disableeditsection: '1' });
     const doc = new DOMParser().parseFromString(data.parse.text, 'text/html');
-    const sections = splitSections(doc);
-    mediaFromArticle(sections).then(extra => { mergeMedia(c, extra); renderMedia(c); }).catch(() => {});
-    const pageUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(data.parse.title.replace(/ /g, '_'))}`;
+    return { doc, title: data.parse.title, sections: splitSections(doc),
+      url: `https://en.wikipedia.org/wiki/${encodeURIComponent(data.parse.title.replace(/ /g, '_'))}` };
+  })().catch(() => null);
 
-    // Obrázek celé postavy z infoboxu
-    const infoImg = doc.querySelector('.infobox img');
-    // vlastní obrázek (pokud se načetl) má přednost před Wikipedií
-    const custom = overrideFor(c, 'full');
-    if (infoImg && !(custom && $('full').src.endsWith(custom))) {
-      let src = infoImg.getAttribute('src');
-      if (src.startsWith('//')) src = 'https:' + src;
-      // větší rozlišení náhledu
-      src = src.replace(/\/(\d+)px-/, '/600px-');
-      const img = $('full');
-      const fallback = img.src;
-      img.onerror = () => { img.onerror = null; img.src = fallback; };
-      img.src = src;
-      $('credit').append(`${t('c.image')}: `, el('a', { href: pageUrl, target: '_blank', rel: 'noopener', text: 'Wikipedia' }));
-    }
+  const [fd, wp] = await Promise.all([fandomP, wikiP]);
+  if (wp) mediaFromArticle(wp.sections).then(extra => { mergeMedia(c, extra); renderMedia(c); }).catch(() => {});
 
-    // Origin story: v češtině z české Wikipedie (pokud článek existuje), jinak z anglické
-    let story = null;
-    if (lang === 'cs' && c.wikiCs) story = await czechStory(c.wikiCs).catch(() => null);
-    if (!story) {
-      const intro = sections.find(s => s.title === '__intro');
-      const bio = sections.filter(s => BIO.test(s.title));
-      const pub = sections.find(s => PUB.test(s.title));
-      const parts = [...toSafe(intro?.nodes || [])];
-      for (const s of bio) parts.push(el('h3', { text: s.title }), ...toSafe(s.nodes));
-      if (!bio.length && pub) parts.push(el('h3', { text: pub.title }), ...toSafe(pub.nodes));
-      if (lang === 'cs') parts.unshift(el('p', { class: 'source', text: t('c.originEnOnly') }));
-      story = { parts, url: pageUrl, title: data.parse.title, site: 'Wikipedia (EN)' };
+  // ---- Obrázek celé postavy: vlastní > Fandom > Wikipedie
+  const custom = overrideFor(c, 'full');
+  const usingCustom = custom && $('full').src.endsWith(custom);
+  let fullSrc = null, fullCredit = null;
+  if (!usingCustom) {
+    if (fd?.image) { fullSrc = fd.image; fullCredit = ['Fandom', fd.url]; }
+    else if (wp) {
+      const infoImg = wp.doc.querySelector('.infobox img');
+      if (infoImg) {
+        let src = infoImg.getAttribute('src');
+        if (src.startsWith('//')) src = 'https:' + src;
+        fullSrc = src.replace(/\/(\d+)px-/, '/600px-');
+        fullCredit = ['Wikipedia', wp.url];
+      }
     }
+  }
+  if (fullSrc) {
+    const img = $('full');
+    const fallback = img.src;
+    img.onerror = () => { img.onerror = null; img.src = fallback; };
+    img.src = fullSrc;
+    $('credit').append(`${t('c.image')}: `, el('a', { href: fullCredit[1], target: '_blank', rel: 'noopener', text: fullCredit[0] }));
+  }
+
+  // ---- Doplňující údaje z infoboxu Fandomu (jen co v databázi chybí)
+  if (fd) addFandomSpecs(c, fd.fields);
+
+  // ---- Příběh: česká Wikipedie > Fandom „History“ > anglická Wikipedie
+  let story = null;
+  if (lang === 'cs' && c.wikiCs) story = await czechStory(c.wikiCs).catch(() => null);
+  if (!story && fd) {
+    const secs = splitSections(fd.doc);
+    const hist = secs.filter(s => /^(history|biography|origin)/i.test(s.title));
+    const parts = [];
+    for (const s of hist) parts.push(...toSafe(s.nodes));
+    if (parts.filter(p => p.tagName === 'P').length) story = { parts, url: fd.url, title: fd.title, site: `${u.label} Fandom`, en: true };
+  }
+  if (!story && wp) {
+    const intro = wp.sections.find(s => s.title === '__intro');
+    const bio = wp.sections.filter(s => BIO.test(s.title));
+    const pub = wp.sections.find(s => PUB.test(s.title));
+    const parts = [...toSafe(intro?.nodes || [])];
+    for (const s of bio) parts.push(el('h3', { text: s.title }), ...toSafe(s.nodes));
+    if (!bio.length && pub) parts.push(el('h3', { text: pub.title }), ...toSafe(pub.nodes));
+    story = { parts, url: wp.url, title: wp.title, site: 'Wikipedia (EN)', en: true };
+  }
+  if (story) {
     showStory(origin, story, c);
+    if (story.en) translateStory(origin, story);
+  } else {
+    origin.replaceChildren(el('p', { class: 'state error', text: t('c.originError', { e: '404' }) }));
+  }
 
-    items.push(...extractComics(sections));
+  // ---- Komiksy: konkrétní čísla s obálkami z Fandomu, jinak seznam sérií z Wikipedie
+  if (fd && await renderFandomComics(c, fd).catch(() => false)) return;
+  const items = [];
+  const first = clean(c.firstApp);
+  if (first) items.push({ title: first, note: t('c.firstApp'), first: true });
+  if (wp) {
+    items.push(...extractComics(wp.sections));
     const tpl = t('c.comicsSource', { a: '\u0000' }).split('\u0000');
     $('comics-source').append(tpl[0],
-      el('a', { href: pageUrl, target: '_blank', rel: 'noopener', text: data.parse.title }), tpl[1] || '');
-  } catch (e) {
-    origin.replaceChildren(el('p', { class: 'state error', text: t('c.originError', { e: e.message }) }));
+      el('a', { href: wp.url, target: '_blank', rel: 'noopener', text: `Wikipedia – ${wp.title}` }), tpl[1] || '');
   }
   if (!items.length) { comics.append(el('li', { text: t('c.noComics') })); return; }
   const cards = items.map(comicCard);
-  comics.replaceChildren(...cards.map(c => c.li));
+  comics.replaceChildren(...cards.map(x => x.li));
   loadCovers(items, cards);
+}
+
+// Údaje z infoboxu Fandomu, které v databázi chybí
+function addFandomSpecs(c, f) {
+  const specs = $('specs'), look = $('appearance');
+  const add = (target, label, value) => {
+    if (!value) return;
+    target.append(el('dt', { text: label }), el('dd', { text: value.split('; ').map(x => tv(x)).filter(Boolean).join(', ') }));
+    target.closest('.panel').hidden = false;
+  };
+  if (!c.realName && f.RealName) add(specs, t('s.realName'), f.RealName);
+  if (!c.base && f.BaseOfOperations) add(specs, t('s.base'), f.BaseOfOperations);
+  if (f.Universe) add(specs, t('s.universe'), f.Universe);
+  if (f.Citizenship) add(specs, t('s.citizenship'), f.Citizenship);
+  if (!c.birthplace && f.PlaceOfBirth) add(specs, t('s.birthplace'), f.PlaceOfBirth);
+  if (f.Origin) add(specs, t('s.origin'), f.Origin);
+  if (!c.height && f.Height) add(look, t('s.height'), f.Height);
+  if (!c.weight && f.Weight) add(look, t('s.weight'), f.Weight);
+  if (!c.eyes && f.Eyes) add(look, t('s.eyes'), f.Eyes);
+  if (!c.hair && f.Hair) add(look, t('s.hair'), f.Hair);
+}
+
+// Strojový překlad anglického příběhu do češtiny (vestavěný překladač prohlížeče)
+async function translateStory(origin, story) {
+  if (lang !== 'cs') return;
+  const els = [...origin.querySelectorAll('p, h3, h4, li')].filter(e => !e.classList.contains('source'));
+  const note = el('p', { class: 'source', text: t('c.translating') });
+  origin.prepend(note);
+  const res = await translateEnglish(els);
+  if (res === 'done') { note.textContent = t('c.machine'); return; }
+  const google = el('a', { class: 'btn', target: '_blank', rel: 'noopener',
+    href: `https://translate.google.com/translate?sl=en&tl=cs&u=${encodeURIComponent(story.url)}`, text: t('c.translateGoogle') });
+  if (typeof res === 'function') {
+    const btn = el('button', { class: 'btn', type: 'button', text: t('c.translate') });
+    btn.onclick = async () => { btn.disabled = true; btn.textContent = t('c.translating'); await res().catch(() => {}); note.textContent = t('c.machine'); btn.remove(); google.remove(); };
+    note.replaceChildren(btn, ' ', google);
+  } else {
+    note.replaceChildren(t('c.untranslated'), ' ', google);
+  }
+}
+
+// Seznam čísel komiksů z Fandomu – chronologicky, s obálkami, po 48 kusech
+async function renderFandomComics(c, fd) {
+  const comics = $('comics');
+  const { list, complete } = await loadAppearances(u.key, fd.title);
+  if (!list.length) return false;
+  const PAGE = 48;
+  let shown = 0;
+  const more = el('button', { class: 'btn', type: 'button', text: t('c.loadMore') });
+  const showNext = async () => {
+    const slice = list.slice(shown, shown + PAGE);
+    shown += slice.length;
+    const cards = slice.map((x, i) => {
+      const card = comicCard({ title: issueLabel(x.title), note: x.year ? String(x.year) : t('c.comic'),
+        first: shown === slice.length && i === 0 });
+      const a = el('a', { href: fandomUrl(u.key, x.title), target: '_blank', rel: 'noopener', class: 'comic-link' });
+      a.append(...card.li.childNodes);
+      card.li.append(a);
+      return card;
+    });
+    if (shown === slice.length) cards[0].li.querySelector('small').textContent = `${t('c.firstApp')} · ${slice[0].year || ''}`;
+    comics.append(...cards.map(x => x.li));
+    const covers = await loadIssueCovers(u.key, slice.map(x => x.title));
+    slice.forEach((x, i) => {
+      const src = covers.get(x.title);
+      if (!src) return;
+      const img = el('img', { src, alt: `${t('c.cover')} – ${issueLabel(x.title)}`, loading: 'lazy' });
+      img.onerror = () => img.remove();
+      cards[i].cover.append(img);
+      cards[i].cover.classList.add('has-img');
+    });
+    if (shown >= list.length) more.remove();
+  };
+  comics.replaceChildren();
+  await showNext();
+  if (shown < list.length) {
+    comics.after(more);
+    more.onclick = async () => { more.disabled = true; await showNext(); more.disabled = false; };
+  }
+  const total = c.apps && c.apps > list.length ? c.apps : list.length;
+  const src = $('comics-source');
+  src.append(t('c.appsCount', { n: total }), ' ', complete ? '' : t('c.appsPartial', { n: list.length }), ' ',
+    `${t('c.source')}: `, el('a', { href: `${fandomUrl(u.key, 'Category:' + fd.title + '/Appearances')}`, target: '_blank', rel: 'noopener', text: `${u.label} Fandom` }));
+  return true;
 }
 
 // Celý text článku z české Wikipedie kromě odkazů a literatury

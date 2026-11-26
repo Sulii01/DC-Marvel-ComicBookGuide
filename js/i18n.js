@@ -27,10 +27,23 @@ const STRINGS = {
     'align.neutral': 'Antihrdina / neutrální',
     'c.loading': 'Načítám postavu…',
     'c.notFound': 'Postava nebyla nalezena.',
-    'c.origin': 'Origin story',
-    'c.originLoading': 'Načítám příběh z Wikipedie…',
+    'c.origin': 'Příběh a původ postavy',
+    'c.originLoading': 'Načítám příběh…',
     'c.originError': 'Příběh se nepodařilo načíst ({e}).',
-    'c.originEnOnly': 'Česká Wikipedie o této postavě článek nemá, zobrazuji anglický.',
+    'c.originEnOnly': 'Česká Wikipedie o této postavě článek nemá. Text je přeložen strojově z anglického zdroje.',
+    'c.translate': 'Přeložit do češtiny',
+    'c.translating': 'Překládám…',
+    'c.translateGoogle': 'Přeložit pomocí Google Překladače',
+    'c.machine': 'Strojový překlad z angličtiny.',
+    'c.untranslated': 'Tento prohlížeč neumí překládat sám. Text je v angličtině – přeložit ho můžeš přes odkaz níže.',
+    'c.loadMore': 'Načíst další',
+    'c.appsCount': 'Celkem výskytů v komiksech: {n}',
+    'c.appsPartial': 'Zobrazeno prvních {n} podle data vydání.',
+    's.universe': 'Vesmír / realita',
+    's.citizenship': 'Občanství',
+    's.marital': 'Rodinný stav',
+    's.education': 'Vzdělání',
+    's.origin': 'Původ',
     'c.showAll': 'Zobrazit celý příběh',
     'c.source': 'Zdroj',
     'c.more': 'Více na',
@@ -39,7 +52,7 @@ const STRINGS = {
     'c.powers': 'Schopnosti',
     'c.appearance': 'Vzhled',
     'c.comics': 'Komiksy, ve kterých se postava objevila',
-    'c.comicsSource': 'Seznam sestaven z článku {a} na Wikipedii.',
+    'c.comicsSource': 'Seznam sestaven z článku {a}.',
     'c.noComics': 'Žádné komiksy nenalezeny.',
     'c.firstApp': 'První výskyt',
     'c.series': 'Komiksová série',
@@ -107,6 +120,19 @@ const STRINGS = {
     'c.originLoading': 'Loading the story from Wikipedia…',
     'c.originError': 'Could not load the story ({e}).',
     'c.originEnOnly': '',
+    'c.translate': 'Translate',
+    'c.translating': 'Translating…',
+    'c.translateGoogle': 'Translate with Google',
+    'c.machine': '',
+    'c.untranslated': '',
+    'c.loadMore': 'Load more',
+    'c.appsCount': 'Total comic appearances: {n}',
+    'c.appsPartial': 'Showing the first {n} by release date.',
+    's.universe': 'Universe / reality',
+    's.citizenship': 'Citizenship',
+    's.marital': 'Marital status',
+    's.education': 'Education',
+    's.origin': 'Origin',
     'c.showAll': 'Show the full story',
     'c.source': 'Source',
     'c.more': 'More on',
@@ -115,7 +141,7 @@ const STRINGS = {
     'c.powers': 'Power stats',
     'c.appearance': 'Appearance',
     'c.comics': 'Comics this character appeared in',
-    'c.comicsSource': 'List compiled from the {a} article on Wikipedia.',
+    'c.comicsSource': 'List compiled from the {a} article.',
     'c.noComics': 'No comics found.',
     'c.firstApp': 'First appearance',
     'c.series': 'Comic series',
@@ -173,16 +199,44 @@ export function t(key, vars = {}) {
   return s.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
 }
 
-// Slovník hodnot z Wikidat (týmy, povolání, schopnosti…) – en -> cs
+// Slovník hodnot z Wikidat (týmy, povolání, schopnosti…) – en -> cs.
+// data/cs.json = české názvy z Wikidat, data/cs-extra.json = ruční překlady (null = nezobrazovat).
 let dict = {};
+const hidden = new Set();
 export async function loadDictionary() {
-  if (lang !== 'cs') return;
-  try { dict = await (await fetch('data/cs.json')).json(); } catch { dict = {}; }
+  const load = async f => { try { return await (await fetch(f)).json(); } catch { return {}; } };
+  const [wd, extra] = await Promise.all([lang === 'cs' ? load('data/cs.json') : {}, load('data/cs-extra.json')]);
+  for (const [k, v] of Object.entries(extra)) if (v === null) hidden.add(k);
+  dict = lang === 'cs' ? { ...wd, ...extra } : {};
 }
 export function tv(v) {
-  if (lang !== 'cs' || v == null) return v;
-  if (Array.isArray(v)) return v.map(tv);
-  return dict[v] || v;
+  if (v == null) return v;
+  if (Array.isArray(v)) return v.map(tv).filter(Boolean);
+  if (hidden.has(v)) return null;
+  return (lang === 'cs' && (dict[v] || dict[String(v).toLowerCase()])) || v;
+}
+
+// Strojový překlad delších anglických textů (origin story, popis) přímo v prohlížeči.
+// Používá vestavěný překladač prohlížeče (Translator API v Chrome 138+), který běží v zařízení.
+// Vrací: 'done' | 'unsupported' | funkci, kterou je nutné spustit kliknutím (stažení jazykového modelu).
+export async function translateEnglish(elements) {
+  if (lang !== 'cs') return 'done';
+  const els = elements.filter(e => e && e.textContent.trim());
+  if (!els.length) return 'done';
+  if (!('Translator' in self)) return 'unsupported';
+  const opts = { sourceLanguage: 'en', targetLanguage: 'cs' };
+  let avail;
+  try { avail = await self.Translator.availability(opts); } catch { return 'unsupported'; }
+  if (avail === 'unavailable') return 'unsupported';
+  const run = async () => {
+    const tr = await self.Translator.create(opts);
+    for (const e of els) {
+      try { e.textContent = await tr.translate(e.textContent); } catch { /* ponechat anglicky */ }
+    }
+    return 'done';
+  };
+  if (avail === 'available') { try { return await run(); } catch { return run; } }
+  return run;   // 'downloadable' / 'downloading' – vyžaduje kliknutí uživatele
 }
 
 // Přeloží prvky s atributy data-i18n / data-i18n-placeholder / data-i18n-aria

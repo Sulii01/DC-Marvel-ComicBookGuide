@@ -273,6 +273,86 @@ def build(key, conf, akabab):
     return chars
 
 
+# ---------------------------------------------------------------- Fandom (DC Database / Marvel Database)
+
+FANDOM = {"dc": ("dc", ["Prime Earth", "New Earth"]), "marvel": ("marvel", ["Earth-616"])}
+
+
+def fandom_api(sub, params):
+    return get(f"https://{sub}.fandom.com/api.php", {"format": "json", "formatversion": "2", **params})
+
+
+def add_fandom(chars, key):
+    """Ke každé postavě najde její stránku na Fandom wiki (dc.fandom.com / marvel.fandom.com)."""
+    sub, earths = FANDOM[key]
+    by_id = {c["id"]: c for c in chars}
+    # 1) odkazy uložené ve Wikidatech (vlastnost P6262 „Fandom article ID“)
+    linked = {}
+    for part in chunks(list(by_id), 400):
+        vals = " ".join(f"wd:{q}" for q in part)
+        for r in sparql(f'SELECT ?c ?f WHERE {{ VALUES ?c {{ {vals} }} ?c wdt:P6262 ?f FILTER(STRSTARTS(?f, "{sub}:")) }}'):
+            linked.setdefault(qid(r["c"]["value"]), r["f"]["value"].split(":", 1)[1].replace("_", " "))
+
+    # 2) kandidáti podle jména – skutečné jméno sdílené více postavami dostane jen ta nejznámější
+    fame = lambda c: len(c.get("films", [])) + len(c.get("tv", [])) + len(c.get("teams", [])) + (5 if c.get("wiki") else 0)
+    owner = {}
+    for c in chars:
+        rn = (c.get("realName") or "").strip()
+        if rn and (rn not in owner or fame(c) > fame(owner[rn])):
+            owner[rn] = c
+    cands = {}
+    for c in chars:
+        bases = []
+        if c.get("realName") and owner.get(c["realName"]) is c:
+            bases.append(c["realName"])
+        if not c.get("baseName"):
+            bases.append(c["name"])
+        lst = [linked[c["id"]]] if c["id"] in linked else []
+        for b in bases:
+            lst += [f"{b} ({e})" for e in earths] + [b]
+        cands[c["id"]] = list(dict.fromkeys(lst))
+
+    # 3) které kandidátní stránky existují a jsou to postavy (kategorie Characters)
+    titles = sorted({t for lst in cands.values() for t in lst})
+    exists = {}
+    for n, part in enumerate(chunks(titles, 50)):
+        d = fandom_api(sub, {"action": "query", "titles": "|".join(part), "redirects": "1",
+                             "prop": "categories", "clcategories": "Category:Characters", "cllimit": "max"})
+        q = d.get("query", {})
+        back = {}
+        for x in q.get("normalized", []) + q.get("redirects", []):
+            back.setdefault(x["to"], []).extend(back.get(x["from"], [x["from"]]))
+        for pg in q.get("pages", []):
+            if pg.get("missing") or not pg.get("categories"):
+                continue
+            for t in back.get(pg["title"], [pg["title"]]):
+                exists[t] = pg["title"]
+        if n % 20 == 0:
+            print(f"    fandom {n * 50}/{len(titles)}", flush=True)
+
+    # 4) počet výskytů v komiksech – rozhoduje mezi Prime Earth / New Earth
+    pages = sorted(set(exists.values()))
+    size = {}
+    for part in chunks(pages, 50):
+        d = fandom_api(sub, {"action": "query", "prop": "categoryinfo",
+                             "titles": "|".join(f"Category:{t}/Appearances" for t in part)})
+        for pg in d.get("query", {}).get("pages", []):
+            size[pg["title"][9:-12]] = pg.get("categoryinfo", {}).get("size", 0)
+
+    found = 0
+    for q, lst in cands.items():
+        ok = [exists[t] for t in lst if t in exists]
+        if not ok:
+            continue
+        # odkaz z Wikidat má přednost, jinak stránka s nejvíce výskyty
+        best = ok[0] if q in linked and lst and lst[0] in exists else max(ok, key=lambda t: size.get(t, 0))
+        by_id[q]["fandom"] = best
+        if size.get(best):
+            by_id[q]["apps"] = size[best]
+        found += 1
+    print(f"    fandom: {found}/{len(chars)} postav má stránku na {sub}.fandom.com", flush=True)
+
+
 # ---------------------------------------------------------------- Stejná jména
 
 GENERIC_PAREN = re.compile(r"^(comics|character|comic book character|DC Comics|Marvel Comics|DC Comics character|"
@@ -444,6 +524,8 @@ def main():
         print(f"[{key}] filmy a seriály…", flush=True)
         add_media(chars)
         disambiguate(chars)
+        print(f"[{key}] Fandom…", flush=True)
+        add_fandom(chars, key)
         (OUT / f"{key}.json").write_text(json.dumps(chars, ensure_ascii=False, separators=(",", ":")))
         print(f"[{key}] hotovo: {len(chars)} postav, {sum(1 for c in chars if c.get('img'))} s obrázkem, "
               f"{sum(1 for c in chars if c.get('wikiCs'))} s českým článkem, "
@@ -458,6 +540,8 @@ def postprocess_only():
         f = OUT / f"{key}.json"
         chars = json.loads(f.read_text())
         disambiguate(chars)
+        print(f"[{key}] Fandom…", flush=True)
+        add_fandom(chars, key)
         f.write_text(json.dumps(chars, ensure_ascii=False, separators=(",", ":")))
 
 
