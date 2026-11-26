@@ -19,6 +19,12 @@ $('sort').value = params.get('sort') || 'az';
 $('align').value = params.get('align') || '';
 
 let characters = [];
+
+// Výška horní lišty – filtr se ukotví těsně pod ni
+const topbarH = () => document.querySelector('.topbar')?.offsetHeight || 0;
+const setTopbarVar = () => document.documentElement.style.setProperty('--topbar-h', `${topbarH()}px`);
+setTopbarVar();
+addEventListener('resize', setTopbarVar);
 const collator = new Intl.Collator(lang, { sensitivity: 'base', numeric: true });
 
 function sorted(list, mode) {
@@ -79,7 +85,12 @@ try {
     c.display = nameOf(c);
     c.search = [c.name, c.nameCs, c.realName, ...(c.aliases || [])].filter(Boolean).join(' | ').toLowerCase();
   }
-  for (const id of ['q', 'sort', 'align']) $(id).addEventListener('input', render);
+  // Při změně filtru odscrollovat na začátek výsledků (filtr zůstává ukotvený nahoře)
+  const toResults = () => {
+    const top = $('grid').getBoundingClientRect().top + scrollY - $('toolbar').offsetHeight - topbarH() - 16;
+    if (scrollY > top) scrollTo({ top, behavior: 'smooth' });
+  };
+  for (const id of ['q', 'sort', 'align']) $(id).addEventListener('input', () => { render(); toResults(); });
   render();
 } catch (e) {
   $('state').textContent = e.message;

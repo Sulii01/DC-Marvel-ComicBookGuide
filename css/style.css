@@ -259,3 +259,19 @@ body.dc { --paper: #e9f2ff; --paper-2: #a9c8f5; }
 .full-image .frame { border-radius: 10px; overflow: hidden; display: flex; justify-content: center; padding: 18px 12px 0; isolation: isolate; }
 .full-image .frame img { max-height: 76vh; width: auto; object-fit: contain; }
 .backdrop img.custom { mix-blend-mode: normal; }
+
+/* ---------- Ukotvený filtr a hledání ---------- */
+.toolbar {
+  position: sticky;
+  top: var(--topbar-h, 62px);
+  z-index: 9;
+  background: rgba(22, 26, 34, .96);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, .35);
+}
+@media (max-width: 640px) {
+  .toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 8px; margin-bottom: 16px; }
+  .toolbar label:first-child { grid-column: 1 / -1; }
+  .toolbar label > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .toolbar input, .toolbar select { min-width: 0; width: 100%; padding: 7px 10px; font-size: 16px; }
+}
