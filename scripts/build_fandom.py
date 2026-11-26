@@ -202,6 +202,15 @@ def merge(chars, key, conf):
                 del by_page[c["fandom"]]
                 c["fandom"] = main
                 by_page[main] = c
+            elif main in by_page:
+                # hlavní stránku už má jiný záznam téže osoby (např. Prowler × Hornet = Hobie Brown):
+                # variantu vyřadit a její jméno nechat jako přezdívku, aby se dala dál vyhledat
+                holder = by_page[main]
+                del by_page[c["fandom"]]
+                chars.remove(c)
+                name = c.get("baseName") or c["name"]
+                if name not in holder.get("aliases", []):
+                    holder["aliases"] = [name] + holder.get("aliases", [])
 
     # stávající postavy bez Fandom stránky – párování podle jména (aby nevznikaly duplicity)
     def nn(x):
@@ -224,6 +233,8 @@ def merge(chars, key, conf):
                 cands.remove(c)
                 c["fandom"] = t
                 by_page[t] = c
+        if c is None and VARIANT.search(t):
+            continue          # klon, LMD, Heroes Reborn… jako samostatná postava jen překáží
         if c is None:
             c = {"id": f"F{rec.get('pageid') or members.get(t)}", "name": display_name(t, rec), "fandom": t}
             chars.append(c)
