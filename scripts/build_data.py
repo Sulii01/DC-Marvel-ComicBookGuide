@@ -18,7 +18,7 @@ from pathlib import Path
 import requests
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "data"
+OUT = ROOT / "data" / "base"   # mezivýsledek; finální data pro web vytváří scripts/build_fandom.py
 CACHE = ROOT / ".cache"
 UA = "ComicBookGuideBuilder/1.0 (fan site data build; https://github.com/Sulii01/DC-Marvel-ComicBookGuide)"
 S = requests.Session()
@@ -873,7 +873,7 @@ def add_media(chars):
 
 
 def main():
-    OUT.mkdir(exist_ok=True)
+    OUT.mkdir(parents=True, exist_ok=True)
     print("Superhero API…", flush=True)
     akabab = load_akabab()
     dictionary = {}
@@ -893,7 +893,7 @@ def main():
         print(f"[{key}] hotovo: {len(chars)} postav, {sum(1 for c in chars if c.get('img'))} s obrázkem, "
               f"{sum(1 for c in chars if c.get('wikiCs'))} s českým článkem, "
               f"{sum(1 for c in chars if c.get('films'))} s filmy, {sum(1 for c in chars if c.get('tv'))} se seriály", flush=True)
-    (OUT / "cs.json").write_text(json.dumps(dict(sorted(dictionary.items())), ensure_ascii=False, indent=0))
+    (ROOT / "data" / "cs.json").write_text(json.dumps(dict(sorted(dictionary.items())), ensure_ascii=False, indent=0))
     print(f"slovník: {len(dictionary)} výrazů", flush=True)
 
 
