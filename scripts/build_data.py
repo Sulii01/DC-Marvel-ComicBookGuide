@@ -353,6 +353,71 @@ def add_fandom(chars, key):
     print(f"    fandom: {found}/{len(chars)} postav má stránku na {sub}.fandom.com", flush=True)
 
 
+def fandom_images(chars, key):
+    """Obrázky z Fandomu: doplní je postavám bez obrázku a nahradí duplicitní obrázky
+    (např. Azrael a Jean-Paul Valley mají na Wikipedii jeden společný článek)."""
+    sub = FANDOM[key][0]
+    # dvě postavy na stejné Fandom stránce: duplicitní záznam z Wikidat vyřadit, jinak stránku nechat jen jedné
+    fame = lambda c: (bool(c.get("wiki")), len(c.get("films", [])) + len(c.get("tv", [])) + len(c.get("teams", [])), -int(c["id"][1:]))
+    by_page = {}
+    for c in chars:
+        if c.get("fandom"):
+            by_page.setdefault(c["fandom"], []).append(c)
+    drop = set()
+    for page, group in by_page.items():
+        if len(group) < 2:
+            continue
+        group.sort(key=fame, reverse=True)
+        keep = group[0]
+        base = lambda c: re.sub(r"\s*\(.*\)$", "", c.get("baseName") or c["name"]).lower()
+        for c in group[1:]:
+            if not c.get("wiki") or base(c) == base(keep) or base(keep).startswith(base(c)) or base(c).startswith(base(keep)) and not c.get("wiki"):
+                drop.add(c["id"])
+            else:
+                c.pop("fandom", None)
+                c.pop("apps", None)
+    if drop:
+        chars[:] = [c for c in chars if c["id"] not in drop]
+        print(f"    duplicitní záznamy vyřazeny: {len(drop)}", flush=True)
+        disambiguate(chars)   # jména bez dvojníků už dovětek v závorce nepotřebují
+    titles = sorted({c["fandom"] for c in chars if c.get("fandom")})
+    thumbs = {}
+    for part in chunks(titles, 50):
+        d = fandom_api(sub, {"action": "query", "titles": "|".join(part), "prop": "pageimages",
+                             "piprop": "thumbnail", "pithumbsize": "400"})
+        for pg in d.get("query", {}).get("pages", []):
+            if pg.get("thumbnail"):
+                thumbs[pg["title"]] = pg["thumbnail"]["source"]
+    added = replaced = 0
+    for c in chars:
+        f = thumbs.get(c.get("fandom"))
+        if f:
+            c["fimg"] = f
+            if not c.get("img"):
+                c["img"] = f
+                added += 1
+    same = {}
+    for c in chars:
+        if c.get("img"):
+            same.setdefault(c["img"], []).append(c)
+    for group in same.values():
+        if len(group) < 2:
+            continue
+        # obrázek patří postavě, jejíž jméno odpovídá názvu článku na Wikipedii
+        owner = next((c for c in group if _strip(c.get("wiki")).lower() == (c.get("baseName") or c["name"]).lower()), group[0])
+        for c in group:
+            if c is owner:
+                continue
+            if c.get("fimg") and c["fimg"] != c.get("img"):
+                c["img"] = c["fimg"]
+            else:
+                c.pop("img", None)
+            replaced += 1
+    for c in chars:
+        c.pop("fimg", None)
+    print(f"    obrázky z Fandomu: {added} doplněno, {replaced} duplicit nahrazeno", flush=True)
+
+
 # ---------------------------------------------------------------- Stejná jména
 
 GENERIC_PAREN = re.compile(r"^(comics|character|comic book character|DC Comics|Marvel Comics|DC Comics character|"
@@ -526,6 +591,7 @@ def main():
         disambiguate(chars)
         print(f"[{key}] Fandom…", flush=True)
         add_fandom(chars, key)
+        fandom_images(chars, key)
         (OUT / f"{key}.json").write_text(json.dumps(chars, ensure_ascii=False, separators=(",", ":")))
         print(f"[{key}] hotovo: {len(chars)} postav, {sum(1 for c in chars if c.get('img'))} s obrázkem, "
               f"{sum(1 for c in chars if c.get('wikiCs'))} s českým článkem, "
@@ -542,6 +608,7 @@ def postprocess_only():
         disambiguate(chars)
         print(f"[{key}] Fandom…", flush=True)
         add_fandom(chars, key)
+        fandom_images(chars, key)
         f.write_text(json.dumps(chars, ensure_ascii=False, separators=(",", ":")))
 
 
