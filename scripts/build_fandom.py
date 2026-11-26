@@ -190,10 +190,40 @@ def merge(chars, key, conf):
     print(f"[{key}] s aspoň {MIN_APPS} výskyty: {len(keep)}", flush=True)
 
     details = page_details(sub, keep)
+    keep_set = set(keep)
+
+    # varianty (klon, zombie, LMD…) přepojit na hlavní stránku postavy, pokud existuje a je volná
+    VARIANT = re.compile(r"\((?:[^()]*\b(?:Clone|Zombie|LMD|Skrull|Duplicate|Doppelganger|Impostor|Heroes Reborn|"
+                         r"Robot|Android|Simulacrum|Decoy|Life Model)\b[^()]*)\)\s*\(", re.I)
+    for c in list(by_page.values()):
+        if VARIANT.search(c["fandom"]):
+            main = re.sub(r"\s*\([^()]*\)(?=\s*\([^()]*\)$)", "", c["fandom"])
+            if main in keep_set and main not in by_page:
+                del by_page[c["fandom"]]
+                c["fandom"] = main
+                by_page[main] = c
+
+    # stávající postavy bez Fandom stránky – párování podle jména (aby nevznikaly duplicity)
+    def nn(x):
+        return B._norm(re.sub(r"\s*\(.*\)$", "", x or ""))
+    unmapped = {}
+    for c in chars:
+        if not c.get("fandom"):
+            unmapped.setdefault(nn(c.get("baseName") or c["name"]), []).append(c)
+
     added = enriched = 0
     for t in keep:
         rec = details.get(t, {})
         c = by_page.get(t)
+        if c is None:
+            cands = unmapped.get(nn(display_name(t, rec)), [])
+            same = [x for x in cands if not x.get("realName") or not rec.get("realName")
+                    or B._norm(x["realName"]) == B._norm(rec["realName"])]
+            if same:
+                c = same[0]
+                cands.remove(c)
+                c["fandom"] = t
+                by_page[t] = c
         if c is None:
             c = {"id": f"F{rec.get('pageid') or members.get(t)}", "name": display_name(t, rec), "fandom": t}
             chars.append(c)
