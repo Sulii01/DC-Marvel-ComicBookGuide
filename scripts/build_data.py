@@ -536,23 +536,25 @@ def _norm(s):
 
 
 def fandom_resolve_unmapped(chars, key):
-    """Postavám bez Fandom stránky ji dohledá: přes stránku se jménem (často rozcestník)
-    a nakonec přes vyhledávání – vždy jen při shodě jména / skutečného jména / přezdívky."""
+    """Postavám bez Fandom stránky ji dohledá (rozcestník se jménem, pak vyhledávání).
+    Stránka se přijme jen po ověření: je to stránka postavy (ne týmu) z hlavní reality
+    a jméno postavy je v infoboxu jako SOUČASNÁ přezdívka nebo skutečné jméno.
+    Pokud Wikidata znají skutečné jméno, musí souhlasit i to."""
     sub = FANDOM[key][0]
     earth = EARTHS[key]
     taken = {c["fandom"] for c in chars if c.get("fandom")}
     todo = [c for c in chars if not c.get("fandom")]
     names_of = {}
     for c in todo:
-        names = [c.get("baseName") or c["name"], c.get("realName")] + (c.get("aliases") or [])[:5]
+        names = [c.get("baseName") or c["name"], c.get("realName")]
         names_of[c["id"]] = [n for n in dict.fromkeys(n.strip() for n in names if n) if len(n) > 1]
 
-    # 1) stránky se jménem: postava, nebo rozcestník s odkazy na postavy
-    bare = sorted({n for c in todo for n in names_of[c["id"]][:2]})
-    char_pages, links = {}, {}
+    # 1) stránky se jménem postavy: rovnou stránka postavy, nebo rozcestník s odkazy
+    bare = sorted({n for c in todo for n in names_of[c["id"]]})
+    direct, links = {}, {}
     for part in chunks(bare, 50):
-        params = {"action": "query", "titles": "|".join(part), "redirects": "1", "prop": "links|categories",
-                  "pllimit": "max", "plnamespace": "0", "clcategories": "Category:Characters", "cllimit": "max"}
+        params = {"action": "query", "titles": "|".join(part), "redirects": "1", "prop": "links",
+                  "pllimit": "max", "plnamespace": "0"}
         back = {}
         while True:
             d = fandom_api(sub, params)
@@ -560,17 +562,47 @@ def fandom_resolve_unmapped(chars, key):
             for x in q.get("normalized", []) + q.get("redirects", []):
                 back.setdefault(x["to"], set()).update(back.get(x["from"], {x["from"]}))
             for pg in q.get("pages", []):
-                origs = back.get(pg["title"], {pg["title"]}) | {pg["title"]}
-                for o in origs:
-                    if pg.get("categories"):
-                        char_pages[o] = pg["title"]
+                for o in back.get(pg["title"], {pg["title"]}) | {pg["title"]}:
+                    if earth.search(pg["title"]):           # přesměrování přímo na postavu z hlavní reality
+                        direct[o] = pg["title"]
                     links.setdefault(o, set()).update(l["title"] for l in pg.get("links", []) if earth.search(l["title"]))
             if "continue" not in d:
                 break
             params = {**params, **d["continue"]}
 
-    # počet výskytů kandidátů z rozcestníků
-    cands = sorted({t for ls in links.values() for t in ls} - taken)
+    # 2) vyhledávání pro jména bez výsledku
+    searched = {}
+    for c in todo:
+        for n in names_of[c["id"]][:1]:
+            if n in direct or links.get(n):
+                continue
+            d = fandom_api(sub, {"action": "query", "list": "search", "srsearch": n, "srlimit": "10"})
+            searched[n] = [r["title"] for r in d.get("query", {}).get("search", []) if earth.search(r["title"])]
+
+    cands = sorted(({*direct.values()} | {t for ls in links.values() for t in ls}
+                    | {t for ls in searched.values() for t in ls}) - taken)
+
+    # 3) infobox kandidátů: šablona postavy, současná přezdívka, skutečné jméno
+    info = {}
+    for part in chunks(cands, 50):
+        d = fandom_api(sub, {"action": "query", "titles": "|".join(part), "prop": "revisions",
+                             "rvprop": "content", "rvslots": "main"})
+        for pg in d.get("query", {}).get("pages", []):
+            rev = (pg.get("revisions") or [{}])[0]
+            text = rev.get("slots", {}).get("main", {}).get("content", "") or rev.get("content", "")
+
+            def field(name):
+                m = re.search(r"\|\s*" + name + r"\s*=\s*(.*)", text)
+                if not m:
+                    return set()
+                v = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]*)\]\]", r"\1", m.group(1))
+                v = re.sub(r"\{\{[^}]*\}\}|<[^>]+>|'{2,3}", " ", v)
+                return {_norm(x) for x in re.split(r"[;,]| or ", v) if _norm(x)}
+            info[pg["title"]] = {
+                "char": bool(re.search(r"Character Template", text)),
+                "current": field("CurrentAlias") | field("Codename"),
+                "real": field("RealName"),
+            }
     size = {}
     for part in chunks(cands, 50):
         d = fandom_api(sub, {"action": "query", "prop": "categoryinfo",
@@ -578,67 +610,39 @@ def fandom_resolve_unmapped(chars, key):
         for pg in d.get("query", {}).get("pages", []):
             size[pg["title"][9:-12]] = pg.get("categoryinfo", {}).get("size", 0)
 
-    # wikitext kandidátů -> jména z infoboxu (RealName, CurrentAlias, Aliases …)
-    def infobox_names(titles):
-        out = {}
-        for part in chunks(sorted(set(titles)), 50):
-            d = fandom_api(sub, {"action": "query", "titles": "|".join(part), "prop": "revisions",
-                                 "rvprop": "content", "rvslots": "main"})
-            for pg in d.get("query", {}).get("pages", []):
-                rev = (pg.get("revisions") or [{}])[0]
-                text = rev.get("slots", {}).get("main", {}).get("content", "") or rev.get("content", "")
-                vals = []
-                for fld in ("RealName", "CurrentAlias", "Aliases", "Title", "Codename"):
-                    m = re.search(r"\|\s*" + fld + r"\s*=\s*(.*)", text)
-                    if m:
-                        v = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]*)\]\]", r"\1", m.group(1))
-                        v = re.sub(r"\{\{[^}]*\}\}|<[^>]+>|'{2,3}", " ", v)
-                        vals += re.split(r"[;,]| or |\n", v)
-                out[pg["title"]] = {_norm(x) for x in vals if _norm(x)}
-        return out
-
-    disamb = sorted({t for ls in links.values() for t in ls} - taken)
-    ib = infobox_names(disamb)
-
-    def verified(page, names):
-        wanted = {_norm(n) for n in names}
+    def ok(page, c):
+        i = info.get(page)
+        if not i or not i["char"]:
+            return False
+        name = _norm(c.get("baseName") or c["name"])
+        real = _norm(c.get("realName"))
         base = _norm(re.sub(r"\s*\(.*\)$", "", page))
-        return base in wanted or bool(ib.get(page, set()) & wanted)
+        page_real = i["real"] | {base}
+        if real and real not in page_real and not any(real in r or r in real for r in page_real):
+            return False                      # Wikidata znají skutečné jméno a nesouhlasí
+        return name == base or name in i["current"] or name in i["real"] or (real and real in page_real)
+
+    def best(opts):
+        # přednost: stránka bez dalšího přívlastku („(Clone)“, „(Inhuman)“…), pak nejvíc výskytů
+        return max(opts, key=lambda t: (t.count("(") == 1, size.get(t, 0)))
 
     found = 0
-    for c in todo:
-        names = names_of[c["id"]]
-        page = next((char_pages[n] for n in names[:2] if n in char_pages and char_pages[n] not in taken), None)
-        if not page:
-            # z rozcestníku jen stránky, jejichž infobox jméno postavy opravdu uvádí
-            opts = [t for n in names[:2] for t in links.get(n, ()) if t not in taken and verified(t, names)]
-            if opts:
-                page = max(opts, key=lambda t: size.get(t, 0))
-        if not page:
-            # 2) vyhledávání – jen přesná shoda jména stránky (bez reality v závorce) se jménem postavy
-            d = fandom_api(sub, {"action": "query", "list": "search", "srsearch": names[0] if names else c["name"],
-                                 "srlimit": "10", "srprop": "redirecttitle"})
-            wanted = {_norm(n) for n in names}
-            for r in d.get("query", {}).get("search", []):
-                t = r["title"]
-                if not earth.search(t) or t in taken:
-                    continue
-                if _norm(re.sub(r"\s*\(.*\)$", "", t)) in wanted:
-                    page = t
-                    break
-                # jinak jen pokud infobox stránky jméno postavy opravdu uvádí
-                if t not in ib:
-                    ib.update(infobox_names([t]))
-                if verified(t, names):
-                    page = t
-                    break
-        if page:
+    for c in sorted(todo, key=lambda c: -(len(c.get("films", [])) + len(c.get("tv", [])) + len(c.get("teams", [])))):
+        opts = set()
+        for n in names_of[c["id"]]:
+            if n in direct:
+                opts.add(direct[n])
+            opts |= links.get(n, set())
+            opts |= set(searched.get(n, []))
+        opts = [t for t in opts if t not in taken and ok(t, c)]
+        if opts:
+            page = best(opts)
             c["fandom"] = page
             taken.add(page)
             if size.get(page):
                 c["apps"] = size[page]
             found += 1
-    print(f"    dohledáno na Fandomu: {found}/{len(todo)}", flush=True)
+    print(f"    dohledáno na Fandomu (ověřeno): {found}/{len(todo)}", flush=True)
 
 
 def fandom_images(chars, key):
