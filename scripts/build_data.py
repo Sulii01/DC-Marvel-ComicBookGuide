@@ -96,9 +96,18 @@ def qid(v):
 def wikidata_characters(items):
     """Vrátí {qid: {...}} se všemi údaji z Wikidat."""
     values = " ".join(f"wd:{q}" for q in items)
-    sub = f"{{ SELECT DISTINCT ?c WHERE {{ VALUES ?u {{ {values} }} ?c wdt:P1080 ?u . ?c wdt:P31/wdt:P279* wd:Q95074 . }} }}"
-    chars = {}
+    ids = sorted({qid(r["c"]["value"]) for r in sparql(
+        f"SELECT DISTINCT ?c WHERE {{ VALUES ?u {{ {values} }} ?c wdt:P1080 ?u . ?c wdt:P31/wdt:P279* wd:Q95074 . }}")},
+        key=lambda q: int(q[1:]))
+    print(f"    {len(ids)} postav", flush=True)
+    chars = {q: {} for q in ids}
+    for part in chunks(ids, 400):
+        sub = "VALUES ?c { " + " ".join(f"wd:{q}" for q in part) + " }"
+        query_batch(sub, chars)
+    return chars
 
+
+def query_batch(sub, chars):
     for r in sparql(f"""
       SELECT ?c ?label ?desc ?title WHERE {{
         {sub}
@@ -128,7 +137,6 @@ def wikidata_characters(items):
           }} GROUP BY ?c""")
         for r in rows:
             chars.setdefault(qid(r["c"]["value"]), {})[key] = r["vals"]["value"].split(SEP)
-        print(f"    {key}: {len(rows)}", flush=True)
 
     for r in sparql(f"""
       SELECT ?c ?fl ?fd ?inc WHERE {{
@@ -145,7 +153,6 @@ def wikidata_characters(items):
                 m = re.match(r"(\d{4})", r[k]["value"])
                 if m and 1890 < int(m.group(1)) < 2100:
                     c["year"] = min(c.get("year", 9999), int(m.group(1)))
-    return chars
 
 
 # ---------------------------------------------------------------- Wikipedie
