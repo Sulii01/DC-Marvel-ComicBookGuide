@@ -1,4 +1,4 @@
-import { getUniverse, loadAll, UNIVERSES, ALIGNMENT, el } from './data.js';
+import { getUniverse, loadAll, UNIVERSES, ALIGNMENT, el, setImage, initials } from './data.js';
 
 const u = getUniverse();
 if (!u) location.replace('index.html');
@@ -45,8 +45,8 @@ function render() {
   history.replaceState(null, '', `?${p}`);
 
   const list = sorted(characters.filter(c =>
-    (!align || c.biography.alignment === align) &&
-    (!q || c.name.toLowerCase().includes(q) || (c.biography.fullName || '').toLowerCase().includes(q))
+    (!align || c.align === align) &&
+    (!q || c.search.includes(q))
   ), mode);
 
   $('count').textContent = `${list.length} z ${characters.length}`;
@@ -55,11 +55,14 @@ function render() {
 
   const frag = document.createDocumentFragment();
   for (const c of list) {
-    const a = ALIGNMENT[c.biography.alignment];
+    const a = ALIGNMENT[c.align];
+    const avatar = el('div', { class: 'avatar' });
+    const img = el('img', { alt: c.name, loading: 'lazy', width: 320, height: 320 });
+    avatar.append(img);
+    setImage(img, c, () => img.replaceWith(el('span', { class: 'initials', text: initials(c.name) })));
     frag.append(el('a', { class: 'card', href: `character.html?u=${u.key}&id=${c.id}` },
       el('div', { class: 'name', text: c.name }),
-      el('div', { class: 'avatar' },
-        el('img', { src: c.images.md, alt: c.name, loading: 'lazy', width: 320, height: 320 })),
+      avatar,
       el('div', { class: 'meta' },
         a ? el('span', { class: `badge ${a.cls}`, text: a.label }) : null,
         c.year ? ` · ${c.year}` : '')
@@ -69,7 +72,9 @@ function render() {
 }
 
 try {
-  characters = (await loadAll()).filter(c => c.biography.publisher === u.publisher);
+  characters = await loadAll(u.key);
+  for (const c of characters)
+    c.search = [c.name, c.realName, ...(c.aliases || [])].filter(Boolean).join(' | ').toLowerCase();
   for (const id of ['q', 'sort', 'align']) $(id).addEventListener('input', render);
   render();
 } catch (e) {

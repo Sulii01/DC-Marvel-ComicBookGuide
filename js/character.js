@@ -1,4 +1,4 @@
-import { getUniverse, loadOne, ALIGNMENT, clean, el } from './data.js';
+import { getUniverse, loadOne, ALIGNMENT, IMAGE_OVERRIDES, clean, el, setImage } from './data.js';
 
 const u = getUniverse();
 const id = new URLSearchParams(location.search).get('id');
@@ -16,51 +16,62 @@ function specRows(target, rows) {
   }
 }
 
+function chipRow(target, label, list) {
+  if (!list?.length) return;
+  target.append(el('dt', { text: label }),
+    el('dd', {}, el('div', { class: 'chips' }, list.map(x => el('span', { text: x })))));
+}
+
 function renderBase(c) {
   document.title = `${c.name} – ${u.label} – Comic Book Guide`;
   $('crumbs').append(' / ', el('a', { href: `universe.html?u=${u.key}`, text: `${u.label} postavy` }), ` / ${c.name}`);
   $('name').textContent = c.name;
-  const full = clean(c.biography.fullName);
-  $('real').textContent = full && full !== c.name ? full : '';
+  $('real').textContent = c.realName && c.realName !== c.name ? c.realName : '';
+  if (c.desc) $('real').after(el('p', { class: 'desc', text: c.desc }));
 
-  const a = ALIGNMENT[c.biography.alignment];
+  const a = ALIGNMENT[c.align];
   if (a) $('badges').append(el('span', { class: `badge ${a.cls}`, text: a.label }));
 
-  // Dočasný obrázek, než se načte celá postava z Wikipedie
-  $('full').src = c.images.lg;
+  // Obrázek z databáze / vlastní obrázek; Wikipedie ho případně nahradí větším
   $('full').alt = c.name;
+  setImage($('full'), c, () => $('full').closest('figure').hidden = true);
 
   specRows($('specs'), [
-    ['Celé jméno', c.biography.fullName],
-    ['Alter ega', c.biography.alterEgos],
-    ['Přezdívky', c.biography.aliases],
-    ['Místo narození', c.biography.placeOfBirth],
-    ['První výskyt', c.biography.firstAppearance],
-    ['Vydavatel', c.biography.publisher],
-    ['Povolání', c.work.occupation],
-    ['Základna', c.work.base],
-    ['Týmy / skupiny', c.connections.groupAffiliation],
-    ['Příbuzní', c.connections.relatives],
+    ['Skutečné jméno', c.realName],
+    ['Místo narození', c.birthplace],
+    ['První výskyt', c.firstApp ? `${c.firstApp}${c.year && !String(c.firstApp).includes(c.year) ? ` (${c.year})` : ''}` : (c.year ? String(c.year) : '')],
+    ['Vydavatel', u.publisher],
+    ['Tvůrci', c.creators],
+    ['Povolání', c.occupation],
+    ['Základna', c.base],
   ]);
+  chipRow($('specs'), 'Přezdívky / alter ega', c.aliases);
+  chipRow($('specs'), 'Týmy / organizace', c.teams);
+  chipRow($('specs'), 'Schopnosti', c.abilities);
+  chipRow($('specs'), 'Příbuzní a partneři', c.relatives);
+  chipRow($('specs'), 'Nepřátelé', c.enemies);
 
   specRows($('appearance'), [
-    ['Pohlaví', c.appearance.gender],
-    ['Rasa / druh', c.appearance.race],
-    ['Výška', (c.appearance.height || []).filter(h => !/^-|^0 /.test(h)).join(' / ')],
-    ['Váha', (c.appearance.weight || []).filter(w => !/^-|^0 /.test(w)).join(' / ')],
-    ['Barva očí', c.appearance.eyeColor],
-    ['Barva vlasů', c.appearance.hairColor],
+    ['Pohlaví', c.gender],
+    ['Druh', c.species],
+    ['Výška', c.height],
+    ['Váha', c.weight],
+    ['Barva očí', c.eyes],
+    ['Barva vlasů', c.hair],
   ]);
+  if (!$('appearance').children.length) $('appearance').closest('.panel').hidden = true;
 
   const names = { intelligence: 'Inteligence', strength: 'Síla', speed: 'Rychlost',
                   durability: 'Odolnost', power: 'Moc', combat: 'Boj' };
-  for (const [k, label] of Object.entries(names)) {
-    const v = Number(c.powerstats[k]) || 0;
-    $('stats').append(el('div', { class: 'stat' },
-      el('span', { text: label }),
-      el('div', { class: 'bar' }, el('span', { style: `width:${Math.min(v, 100)}%` })),
-      el('span', { class: 'val', text: String(v) })));
-  }
+  if (c.powerstats) {
+    for (const [k, label] of Object.entries(names)) {
+      const v = Number(c.powerstats[k]) || 0;
+      $('stats').append(el('div', { class: 'stat' },
+        el('span', { text: label }),
+        el('div', { class: 'bar' }, el('span', { style: `width:${Math.min(v, 100)}%` })),
+        el('span', { class: 'val', text: String(v) })));
+    }
+  } else $('stats').closest('.panel').hidden = true;
 
   $('state').hidden = true;
   $('content').hidden = false;
@@ -78,6 +89,7 @@ async function wiki(params) {
 // Najde článek o postavě: hledá jméno + vydavatele, upřednostní článek,
 // který ve výsledku hledání zmiňuje správného vydavatele.
 async function findArticle(c) {
+  if (c.wiki) return c.wiki;
   const pub = u.key === 'marvel' ? 'Marvel Comics' : 'DC Comics';
   const data = await wiki({
     action: 'query', list: 'search', srlimit: '8', srprop: 'snippet',
@@ -176,7 +188,7 @@ async function loadWiki(c) {
   const comics = $('comics');
 
   // Vždy zobrazit první výskyt jako první komiks
-  const first = clean(c.biography.firstAppearance);
+  const first = clean(c.firstApp);
   const items = [];
   if (first) items.push({ title: first, note: 'První výskyt', first: true });
 
@@ -191,7 +203,9 @@ async function loadWiki(c) {
 
     // Obrázek celé postavy z infoboxu
     const infoImg = doc.querySelector('.infobox img');
-    if (infoImg) {
+    // vlastní obrázek (pokud se načetl) má přednost před Wikipedií
+    const custom = IMAGE_OVERRIDES[c.id];
+    if (infoImg && !(custom && $('full').src.endsWith(custom))) {
       let src = infoImg.getAttribute('src');
       if (src.startsWith('//')) src = 'https:' + src;
       // větší rozlišení náhledu
@@ -294,7 +308,7 @@ async function loadCovers(items, cards) {
 }
 
 try {
-  const c = await loadOne(id);
+  const c = await loadOne(u.key, id);
   renderBase(c);
   loadWiki(c);
 } catch (e) {

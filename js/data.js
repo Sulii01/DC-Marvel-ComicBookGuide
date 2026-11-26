@@ -1,6 +1,5 @@
 // Společná data a pomocné funkce pro celý web.
-
-export const API_BASE = 'https://cdn.jsdelivr.net/gh/akabab/superhero-api@0.3.0/api';
+// Databáze postav je v data/marvel.json a data/dc.json (generuje scripts/build_data.py).
 
 export const UNIVERSES = {
   marvel: { key: 'marvel', label: 'Marvel', publisher: 'Marvel Comics', fandom: 'https://marvel.fandom.com' },
@@ -13,39 +12,55 @@ export const ALIGNMENT = {
   neutral: { label: 'Antihrdina / neutrální', cls: 'neutral' },
 };
 
+// Vlastní obrázky postav (Wikidata ID -> soubor v assets/characters/).
+// Když soubor chybí, použije se automaticky obrázek z databáze.
+export const IMAGE_OVERRIDES = {
+  Q2695156: 'assets/characters/batman.jpg',   // Batman
+};
+
+export function imageFor(c) {
+  return IMAGE_OVERRIDES[c.id] || c.img || null;
+}
+
+// Nastaví obrázek s náhradou: vlastní obrázek -> databáze -> nic
+export function setImage(img, c, onNone) {
+  const list = [IMAGE_OVERRIDES[c.id], c.img].filter(Boolean);
+  const next = () => {
+    const src = list.shift();
+    if (src) img.src = src;
+    else { img.onerror = null; onNone?.(); }
+  };
+  img.onerror = next;
+  next();
+}
+
 export function getUniverse() {
   const key = new URLSearchParams(location.search).get('u');
   return UNIVERSES[key] || null;
 }
 
-let cache = null;
-export async function loadAll() {
-  if (cache) return cache;
-  const res = await fetch(`${API_BASE}/all.json`);
+const cache = {};
+export async function loadAll(key) {
+  if (cache[key]) return cache[key];
+  const res = await fetch(`data/${key}.json`);
   if (!res.ok) throw new Error(`Nepodařilo se načíst data postav (HTTP ${res.status}).`);
-  cache = (await res.json()).map(enrich);
-  return cache;
+  return (cache[key] = await res.json());
 }
 
-export async function loadOne(id) {
-  const res = await fetch(`${API_BASE}/id/${encodeURIComponent(id)}.json`);
-  if (!res.ok) throw new Error(`Postava nebyla nalezena (HTTP ${res.status}).`);
-  return enrich(await res.json());
-}
-
-// Rok prvního výskytu, např. "Tales of Suspense #39 (March 1963)" -> 1963
-function enrich(c) {
-  const fa = c.biography?.firstAppearance || '';
-  const years = fa.match(/\b(19[3-9]\d|20[0-4]\d)\b/g);
-  c.year = years ? Number(years[years.length - 1]) : null;
+export async function loadOne(key, id) {
+  const c = (await loadAll(key)).find(x => x.id === id);
+  if (!c) throw new Error('Postava nebyla nalezena.');
   return c;
 }
 
 export function clean(v) {
   if (v == null) return '';
-  if (Array.isArray(v)) v = v.filter(x => x && x !== '-' && x !== 'null').join(', ');
-  v = String(v).trim();
-  return v === '-' || v === 'null' || v === 'No alter egos found.' ? '' : v;
+  if (Array.isArray(v)) v = v.filter(Boolean).join(', ');
+  return String(v).trim();
+}
+
+export function initials(name) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
 }
 
 export function el(tag, attrs = {}, ...children) {
