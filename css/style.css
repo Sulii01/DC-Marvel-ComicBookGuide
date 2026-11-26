@@ -65,7 +65,7 @@ img { max-width: 100%; display: block; }
   overflow: hidden;
 }
 .logo-link:hover, .logo-link:focus-visible { transform: translateY(-6px) scale(1.03); }
-.logo-link img { max-width: 80%; max-height: 80%; object-fit: contain; }
+.logo-link img { max-width: 86%; max-height: 80%; object-fit: contain; }
 .logo-link.marvel { background: #e62429; }
 .logo-link.marvel:hover { box-shadow: 0 16px 50px rgba(230, 36, 41, .6); }
 .logo-link.dc { background: #fff; }
