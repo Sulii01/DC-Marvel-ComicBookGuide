@@ -128,10 +128,15 @@ function toSafe(nodes) {
       for (const li of n.querySelectorAll(':scope > li'))
         list.append(el('li', { text: li.textContent.replace(/\[\d+\]/g, '').trim() }));
       out.push(list);
+    } else if (n.matches('div, section') && !n.matches(SKIP_BLOCK)) {
+      // Marvel Database obaluje text sekce do <div class="marvel_database_section">
+      out.push(...toSafe([...n.children]));
     }
   }
   return out;
 }
+// bloky, které nejsou souvislý text (infobox, obsah, navigace, galerie, citáty…)
+const SKIP_BLOCK = '.toc, .portable-infobox, aside, .navbox, .gallery, .wikia-gallery, .quote, .references, .reflist, .thumb, figure, .noprint, .hatnote, .dablink';
 
 async function loadWiki(c) {
   const origin = $('origin');
