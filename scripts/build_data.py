@@ -546,12 +546,40 @@ def fandom_resolve_unmapped(chars, key):
         for pg in d.get("query", {}).get("pages", []):
             size[pg["title"][9:-12]] = pg.get("categoryinfo", {}).get("size", 0)
 
+    # wikitext kandidátů -> jména z infoboxu (RealName, CurrentAlias, Aliases …)
+    def infobox_names(titles):
+        out = {}
+        for part in chunks(sorted(set(titles)), 50):
+            d = fandom_api(sub, {"action": "query", "titles": "|".join(part), "prop": "revisions",
+                                 "rvprop": "content", "rvslots": "main"})
+            for pg in d.get("query", {}).get("pages", []):
+                rev = (pg.get("revisions") or [{}])[0]
+                text = rev.get("slots", {}).get("main", {}).get("content", "") or rev.get("content", "")
+                vals = []
+                for fld in ("RealName", "CurrentAlias", "Aliases", "Title", "Codename"):
+                    m = re.search(r"\|\s*" + fld + r"\s*=\s*(.*)", text)
+                    if m:
+                        v = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]*)\]\]", r"\1", m.group(1))
+                        v = re.sub(r"\{\{[^}]*\}\}|<[^>]+>|'{2,3}", " ", v)
+                        vals += re.split(r"[;,]| or |\n", v)
+                out[pg["title"]] = {_norm(x) for x in vals if _norm(x)}
+        return out
+
+    disamb = sorted({t for ls in links.values() for t in ls} - taken)
+    ib = infobox_names(disamb)
+
+    def verified(page, names):
+        wanted = {_norm(n) for n in names}
+        base = _norm(re.sub(r"\s*\(.*\)$", "", page))
+        return base in wanted or bool(ib.get(page, set()) & wanted)
+
     found = 0
     for c in todo:
         names = names_of[c["id"]]
         page = next((char_pages[n] for n in names[:2] if n in char_pages and char_pages[n] not in taken), None)
         if not page:
-            opts = [t for n in names[:2] for t in links.get(n, ()) if t not in taken]
+            # z rozcestníku jen stránky, jejichž infobox jméno postavy opravdu uvádí
+            opts = [t for n in names[:2] for t in links.get(n, ()) if t not in taken and verified(t, names)]
             if opts:
                 page = max(opts, key=lambda t: size.get(t, 0))
         if not page:
@@ -563,7 +591,13 @@ def fandom_resolve_unmapped(chars, key):
                 t = r["title"]
                 if not earth.search(t) or t in taken:
                     continue
-                if _norm(re.sub(r"\s*\(.*\)$", "", t)) in wanted or _norm(re.sub(r"\s*\(.*\)$", "", r.get("redirecttitle") or "")) in wanted:
+                if _norm(re.sub(r"\s*\(.*\)$", "", t)) in wanted:
+                    page = t
+                    break
+                # jinak jen pokud infobox stránky jméno postavy opravdu uvádí
+                if t not in ib:
+                    ib.update(infobox_names([t]))
+                if verified(t, names):
                     page = t
                     break
         if page:
@@ -832,6 +866,11 @@ def postprocess_only():
     for key in UNIVERSES:
         f = OUT / f"{key}.json"
         chars = json.loads(f.read_text())
+        for c in chars:            # přiřazení k Fandomu vždy spočítat znovu
+            c.pop("fandom", None)
+            c.pop("apps", None)
+            if "static.wikia" in (c.get("img") or ""):
+                c.pop("img")       # obrázek z Fandomu se přiřadí znovu podle ověřené stránky
         disambiguate(chars)
         print(f"[{key}] Fandom…", flush=True)
         add_fandom(chars, key)
