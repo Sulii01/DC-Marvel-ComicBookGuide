@@ -419,6 +419,38 @@ def add_media_wiki(chars):
                    "tv" if re.search(r"television|tv|animat|series", head, re.I) else default
             bucket[kind] += _italic_links(part)
 
+    # Postavy bez samostatného článku „X in film“: sekce „In other media“ přímo v článku o postavě
+    # (jen u postav, kde se film/seriál dá čekat – už nějaký mají, nebo mají hodně výskytů v komiksech)
+    MEDIA_HEAD = re.compile(r"in other media|other media|adaptations|in film|in television|film|television", re.I)
+    main_pages = {}
+    for base, cs in base_of.items():
+        if base in found:
+            continue
+        if any(c.get("films") or c.get("tv") or (c.get("apps") or 0) >= 150 for c in cs):
+            main_pages[base] = cs[0]["wiki"]
+    print(f"    články postav se sekcí o filmech: {len(main_pages)} ke kontrole", flush=True)
+    for n, (base, page) in enumerate(sorted(main_pages.items())):
+        d = get("https://en.wikipedia.org/w/api.php", {"action": "parse", "format": "json", "formatversion": "2",
+                                                        "page": page, "prop": "text", "disableeditsection": "1"})
+        html = d.get("parse", {}).get("text", "")
+        bucket = {"films": [], "tv": [], "other": []}
+        for part in re.split(r'<h2[^>]*>', html)[1:]:
+            head = re.sub(r"<[^>]+>", "", part[:300].split("</h2>")[0]).strip()
+            if not MEDIA_HEAD.search(head) or SKIP_SECTION.match(head):
+                continue
+            # podsekce (h3) určují druh díla
+            for sub_part in re.split(r'<h3[^>]*>', part):
+                sub_head = re.sub(r"<[^>]+>", "", sub_part[:300].split("</h3>")[0]).strip()
+                if SKIP_SECTION.match(sub_head) or re.search(r"video game|novel|book|toy|music|radio|stage|theme park", sub_head, re.I):
+                    continue
+                kind = "films" if re.search(r"film|movie|cinema", sub_head, re.I) else \
+                       "tv" if re.search(r"television|tv|animat|series|web", sub_head, re.I) else "other"
+                bucket[kind] += _italic_links(sub_part)
+        if any(bucket.values()):
+            found[base] = bucket
+        if n % 200 == 0:
+            print(f"    články postav {n}/{len(main_pages)}", flush=True)
+
     titles = sorted({t for b in found.values() for lst in b.values() for t in lst})
     info = {}
     for part in chunks(titles, 50):
