@@ -203,6 +203,7 @@ async function loadWiki(c) {
     const data = await wiki({ action: 'parse', page: title, prop: 'text', redirects: '1', disableeditsection: '1' });
     const doc = new DOMParser().parseFromString(data.parse.text, 'text/html');
     const sections = splitSections(doc);
+    mediaFromArticle(sections).then(extra => { mergeMedia(c, extra); renderMedia(c); }).catch(() => {});
     const pageUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(data.parse.title.replace(/ /g, '_'))}`;
 
     // Obrázek celé postavy z infoboxu
@@ -295,7 +296,7 @@ function baseTitle(t) {
 }
 
 const COMIC_DESC = /comic|series|anthology|magazine|graphic novel|storyline|crossover|limited series|one-shot/i;
-const NOT_COMIC = /character|superhero|supervillain|villain|film|television|video game|novel by|band|album/i;
+const NOT_COMIC = /\bcharacter\b|appearing in|fictional|supervillain|\bfilm\b|television|video game|novel by|band|album|soundtrack/i;
 
 // Pro každý komiks najde článek na Wikipedii s obálkou (infobox) a doplní obrázek.
 async function loadCovers(items, cards) {
@@ -357,7 +358,7 @@ function mediaCard(m, label) {
 
 // Plakáty: obrázek z infoboxu článku o filmu/seriálu (oficiální plakát nebo titulní karta)
 async function loadPosters(list, cards) {
-  const titles = [...new Set(list.map(m => m.wiki).filter(Boolean))];
+  const titles = [...new Set(list.filter(m => !m.thumb).map(m => m.wiki).filter(Boolean))];
   const thumbs = new Map();
   for (let i = 0; i < titles.length; i += 50) {
     try {
@@ -370,7 +371,7 @@ async function loadPosters(list, cards) {
     } catch { /* bez plakátů */ }
   }
   list.forEach((m, i) => {
-    const src = m.wiki && thumbs.get(m.wiki);
+    const src = m.thumb || (m.wiki && thumbs.get(m.wiki));
     if (!src) return;
     const img = el('img', { src, alt: `${t('c.poster')} – ${cards[i].title}`, loading: 'lazy' });
     img.onerror = () => img.remove();
@@ -379,10 +380,80 @@ async function loadPosters(list, cards) {
   });
 }
 
+// Doplnění filmů a seriálů z článku na Wikipedii (sekce „In other media“ a navazující články)
+const MEDIA_SECTION = /^(in other media|other media|in film|in television|adaptations|film|films|television|other versions in media)/i;
+const TV_DESC = /television|tv series|web series|miniseries|animated series|anime|streaming series/i;
+const FILM_DESC = /\bfilm\b|movie/i;
+const SKIP_DESC = /video game|comic|novel|album|song|soundtrack|porn|parody|actor|actress|character|episode|franchise|film series|toy|book|magazine|list of/i;
+
+function mediaLinks(nodes, out) {
+  for (const n of nodes) n.querySelectorAll?.('a[href^="/wiki/"]').forEach(a => {
+    if (!a.closest('i') && !a.querySelector('i')) return;   // názvy děl jsou kurzívou
+    const title = decodeURIComponent(a.getAttribute('href').slice(6)).split('#')[0].replace(/_/g, ' ');
+    if (!title.includes(':') || /^[^:]+: /.test(title) && !/^(File|Category|Help|Wikipedia|Template|Special|Portal):/.test(title)) out.add(title);
+  });
+}
+
+async function mediaFromArticle(sections) {
+  const links = new Set();
+  const more = new Set();
+  for (const s of sections) {
+    if (!MEDIA_SECTION.test(s.title)) continue;
+    mediaLinks(s.nodes, links);
+    for (const n of s.nodes) n.querySelectorAll?.('.hatnote a[href^="/wiki/"]').forEach(a => {
+      const tt = decodeURIComponent(a.getAttribute('href').slice(6)).split('#')[0].replace(/_/g, ' ');
+      if (/in (other )?media|in film|in television/i.test(tt)) more.add(tt);
+    });
+  }
+  for (const page of [...more].slice(0, 3)) {
+    try {
+      const d = await wiki({ action: 'parse', page, prop: 'text', redirects: '1', disableeditsection: '1' });
+      const doc = new DOMParser().parseFromString(d.parse.text, 'text/html');
+      for (const s of splitSections(doc)) if (!/^(references|notes|external links|see also|video games|novels|books|music)/i.test(s.title)) mediaLinks(s.nodes, links);
+    } catch { /* ignore */ }
+  }
+  const titles = [...links].slice(0, 250);
+  const out = { tv: [], films: [] };
+  for (let i = 0; i < titles.length; i += 50) {
+    try {
+      const d = await wiki({ action: 'query', titles: titles.slice(i, i + 50).join('|'), redirects: '1',
+        prop: 'pageimages|description', piprop: 'thumbnail', pithumbsize: '400', pilicense: 'any' });
+      for (const p of d.query?.pages || []) {
+        const desc = p.description || '';
+        if (p.missing || !desc || SKIP_DESC.test(desc)) continue;
+        const kind = TV_DESC.test(desc) ? 'tv' : FILM_DESC.test(desc) ? 'films' : null;
+        if (!kind) continue;
+        const y = desc.match(/\b(19\d{2}|20\d{2})\b/) || p.title.match(/\((19\d{2}|20\d{2})\b/);
+        out[kind].push({ name: p.title.replace(/\s*\([^)]*\)$/, ''), wiki: p.title,
+          year: y ? Number(y[1]) : undefined, thumb: p.thumbnail?.source });
+      }
+    } catch { /* ignore */ }
+  }
+  return out;
+}
+
+function mergeMedia(c, extra) {
+  for (const key of ['tv', 'films']) {
+    const list = [...(c[key] || [])];
+    const seen = new Set(list.map(m => (m.wiki || m.name).toLowerCase()));
+    for (const m of extra[key]) {
+      const k = m.wiki.toLowerCase();
+      if (BAD_MEDIA.test(m.name)) continue;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      list.push(m);
+    }
+    list.sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999) || a.name.localeCompare(b.name));
+    c[key] = list.slice(0, 120);
+  }
+}
+
+const BAD_MEDIA = /\bXXX\b|porn|parody/i;
+
 function renderMedia(c) {
   let any = false;
   for (const [key, label] of [['tv', t('c.tvShow')], ['films', t('c.film')]]) {
-    const list = c[key] || [];
+    const list = (c[key] || []).filter(m => !BAD_MEDIA.test(m.name));
     if (!list.length) continue;
     any = true;
     const cards = list.map(m => mediaCard(m, label));

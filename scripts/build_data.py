@@ -330,7 +330,8 @@ def add_media(chars):
             UNION {{ ?c wdt:P4969 ?x . ?x wdt:P1441 ?w }} UNION {{ ?c wdt:P4969 ?x . ?w wdt:P674 ?x }}
             VALUES (?t ?kind) {{ {MEDIA_TYPES} }}
             ?w wdt:P31 ?t .
-            ?w rdfs:label ?wl FILTER(lang(?wl)="en")
+            FILTER NOT EXISTS {{ ?w wdt:P136 ?g . VALUES ?g {{ wd:Q185529 wd:Q2483208 wd:Q7148982 }} }}
+            ?w rdfs:label ?wl FILTER(lang(?wl)="en" && !REGEX(?wl, "XXX|porn|parody", "i"))
             OPTIONAL {{ ?w rdfs:label ?wlc FILTER(lang(?wlc)="cs") }}
             OPTIONAL {{ ?a schema:about ?w; schema:isPartOf <https://en.wikipedia.org/>; schema:name ?title }}
             OPTIONAL {{ ?w wdt:P577 ?d }}
