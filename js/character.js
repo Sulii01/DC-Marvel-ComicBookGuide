@@ -8,8 +8,8 @@ if (!u || !id) location.replace('index.html');
 document.body.classList.add(u.key);
 
 const $ = x => document.getElementById(x);
+// Wikipedie se používá už jen pro plakáty filmů a seriálů
 const WIKI = 'https://en.wikipedia.org/w/api.php';
-const WIKI_CS = 'https://cs.wikipedia.org/w/api.php';
 const uniLink = () => `universe.html?u=${u.key}`;
 
 function specRows(target, rows) {
@@ -97,28 +97,6 @@ async function wiki(params, api = WIKI) {
   return res.json();
 }
 
-// Najde článek o postavě: hledá jméno + vydavatele, upřednostní článek,
-// který ve výsledku hledání zmiňuje správného vydavatele.
-async function findArticle(c) {
-  if (c.wiki) return c.wiki;
-  const pub = u.key === 'marvel' ? 'Marvel Comics' : 'DC Comics';
-  const data = await wiki({
-    action: 'query', list: 'search', srlimit: '8', srprop: 'snippet',
-    srsearch: `${c.name} ${pub} character`,
-  });
-  const results = data.query?.search || [];
-  const bad = /^(List of|Lists of)|\((film|TV series|video game|soundtrack|album|song)\)|film\)$/i;
-  const norm = s => s.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const n = norm(c.name);
-  const ok = results.filter(r => !bad.test(r.title));
-  return (
-    ok.find(r => norm(r.title.replace(/\(.*\)/, '')) === n && new RegExp(pub.split(' ')[0], 'i').test(r.snippet + r.title)) ||
-    ok.find(r => norm(r.title.replace(/\(.*\)/, '')) === n) ||
-    ok.find(r => norm(r.title).includes(n)) ||
-    ok[0]
-  )?.title;
-}
-
 // Rozdělí HTML článku na sekce podle nadpisů h2
 function splitSections(doc) {
   const root = doc.querySelector('.mw-parser-output') || doc.body;
@@ -155,80 +133,18 @@ function toSafe(nodes) {
   return out;
 }
 
-const BIO = /^(fictional character biography|fictional (character )?history|character biography|biography|fictional biography|origin)/i;
-const PUB = /^publication history/i;
-const COMICS = /^(collected editions|bibliography|comics|series|titles|in comics)/i;
-
-function extractComics(sections) {
-  const found = new Map();
-  const add = (t0, note) => {
-    let t = t0.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim();
-    if (t.length < 3 || t.length > 90 || /^\d+$/.test(t) || /needed|citation|clarification/i.test(t)) return;
-    const key = t.toLowerCase();
-    if (!found.has(key)) found.set(key, { title: t, note });
-  };
-  for (const s of sections) {
-    if (COMICS.test(s.title)) {
-      for (const n of s.nodes) {
-        // tabulky "Collected editions": první sloupec je název
-        n.querySelectorAll?.('table tr').forEach(tr => {
-          const cell = tr.querySelector('td');
-          if (cell) add(cell.textContent, t('c.collected'));
-        });
-        n.querySelectorAll?.('li').forEach(li => {
-          const i = li.querySelector('i');
-          add(i ? i.textContent : li.textContent.split(/[–(:]/)[0], t('c.comic'));
-        });
-      }
-    }
-  }
-  // Názvy sérií zmíněné kurzívou v historii vydávání a v biografii
-  for (const s of sections) {
-    if (PUB.test(s.title) || BIO.test(s.title)) {
-      for (const n of s.nodes) n.querySelectorAll?.('p i, li i').forEach(i => {
-        // kurzíva v poznámkách typu [volume and issue needed] není název komiksu
-        if (!i.closest('sup, .noprint, .Template-Fact')) add(i.textContent, t('c.series'));
-      });
-    }
-  }
-  return [...found.values()].slice(0, 120);
-}
-
 async function loadWiki(c) {
   const origin = $('origin');
   const comics = $('comics');
 
-  // Fandom (DC Database / Marvel Database) a Wikipedie se načítají souběžně
-  const fandomP = c.fandom ? loadFandomPage(u.key, c.fandom).catch(() => null) : Promise.resolve(null);
-  const wikiP = (async () => {
-    const title = await findArticle(c);
-    if (!title) return null;
-    const data = await wiki({ action: 'parse', page: title, prop: 'text', redirects: '1', disableeditsection: '1' });
-    const doc = new DOMParser().parseFromString(data.parse.text, 'text/html');
-    return { doc, title: data.parse.title, sections: splitSections(doc),
-      url: `https://en.wikipedia.org/wiki/${encodeURIComponent(data.parse.title.replace(/ /g, '_'))}` };
-  })().catch(() => null);
+  // Jediný zdroj informací o postavě: Fandom (DC Database / Marvel Database)
+  const fd = c.fandom ? await loadFandomPage(u.key, c.fandom).catch(() => null) : null;
+  const searchUrl = `${u.fandom}/wiki/Special:Search?query=${encodeURIComponent(c.baseName || c.name)}`;
 
-  const [fd, wp] = await Promise.all([fandomP, wikiP]);
-  if (wp) mediaFromArticle(wp.sections, wp.title).then(extra => { mergeMedia(c, extra); renderMedia(c); }).catch(() => {});
-
-  // ---- Obrázek celé postavy: vlastní > Fandom > Wikipedie
+  // ---- Obrázek celé postavy: vlastní > Fandom
   const custom = overrideFor(c, 'full');
   const usingCustom = custom && $('full').src.endsWith(custom);
-  let fullSrc = null, fullCredit = null;
-  if (!usingCustom) {
-    if (fd?.image) { fullSrc = fd.image; fullCredit = ['Fandom', fd.url]; }
-    else if (wp) {
-      const infoImg = wp.doc.querySelector('.infobox img');
-      if (infoImg) {
-        let src = infoImg.getAttribute('src');
-        if (src.startsWith('//')) src = 'https:' + src;
-        fullSrc = src.replace(/\/(\d+)px-/, '/600px-');
-        fullCredit = ['Wikipedia', wp.url];
-      }
-    }
-  }
-  if (fullSrc) {
+  if (!usingCustom && fd?.image) {
     // nový obrázek se nejdřív načte zvlášť a vymění se až po úspěšném načtení
     const pre = new Image();
     pre.referrerPolicy = 'no-referrer';
@@ -236,57 +152,46 @@ async function loadWiki(c) {
       const img = $('full');
       img.onerror = null;
       img.classList.remove('custom');
-      img.src = fullSrc;
+      img.src = fd.image;
       img.closest('figure').hidden = false;
-      $('credit').replaceChildren(`${t('c.image')}: `, el('a', { href: fullCredit[1], target: '_blank', rel: 'noopener', text: fullCredit[0] }));
+      $('credit').replaceChildren(`${t('c.image')}: `, el('a', { href: fd.url, target: '_blank', rel: 'noopener', text: `${u.label} Fandom` }));
     };
-    pre.src = fullSrc;
+    pre.src = fd.image;
   }
 
   // ---- Doplňující údaje z infoboxu Fandomu (jen co v databázi chybí)
   if (fd) addFandomSpecs(c, fd.fields);
 
-  // ---- Příběh: česká Wikipedie > Fandom „History“ > anglická Wikipedie
+  // ---- Příběh postavy (sekce „History“ na Fandomu), česky strojový překlad
   let story = null;
-  if (lang === 'cs' && c.wikiCs) story = await czechStory(c.wikiCs).catch(() => null);
-  if (!story && fd) {
+  if (fd) {
     const secs = splitSections(fd.doc);
     const hist = secs.filter(s => /^(history|biography|origin)/i.test(s.title));
     const parts = [];
     for (const s of hist) parts.push(...toSafe(s.nodes));
-    if (parts.filter(p => p.tagName === 'P').length) story = { parts, url: fd.url, title: fd.title, site: `${u.label} Fandom`, en: true };
-  }
-  if (!story && wp) {
-    const intro = wp.sections.find(s => s.title === '__intro');
-    const bio = wp.sections.filter(s => BIO.test(s.title));
-    const pub = wp.sections.find(s => PUB.test(s.title));
-    const parts = [...toSafe(intro?.nodes || [])];
-    for (const s of bio) parts.push(el('h3', { text: s.title }), ...toSafe(s.nodes));
-    if (!bio.length && pub) parts.push(el('h3', { text: pub.title }), ...toSafe(pub.nodes));
-    story = { parts, url: wp.url, title: wp.title, site: 'Wikipedia (EN)', en: true };
+    if (!parts.some(p => p.tagName === 'P')) {   // bez sekce History: úvod stránky
+      parts.push(...toSafe(secs.find(s => s.title === '__intro')?.nodes || []));
+    }
+    if (parts.some(p => p.tagName === 'P')) story = { parts, url: fd.url, title: fd.title, site: `${u.label} Fandom`, en: true };
   }
   if (story) {
     showStory(origin, story, c);
-    if (story.en) translateStory(origin, story);
+    translateStory(origin, story);
   } else {
-    origin.replaceChildren(el('p', { class: 'state error', text: t('c.originError', { e: '404' }) }));
+    origin.replaceChildren(el('p', { class: 'state', text: t('c.noStory') }),
+      el('a', { class: 'btn', href: searchUrl, target: '_blank', rel: 'noopener', text: t('c.searchFandom') }));
   }
 
-  // ---- Komiksy: konkrétní čísla s obálkami z Fandomu, jinak seznam sérií z Wikipedie
+  // ---- Komiksy: konkrétní čísla s obálkami z Fandomu
   if (fd && await renderFandomComics(c, fd).catch(() => false)) return;
-  const items = [];
   const first = clean(c.firstApp);
-  if (first) items.push({ title: first, note: t('c.firstApp'), first: true });
-  if (wp) {
-    items.push(...extractComics(wp.sections));
-    const tpl = t('c.comicsSource', { a: '\u0000' }).split('\u0000');
-    $('comics-source').append(tpl[0],
-      el('a', { href: wp.url, target: '_blank', rel: 'noopener', text: `Wikipedia – ${wp.title}` }), tpl[1] || '');
+  if (first) {
+    const card = comicCard({ title: first, note: t('c.firstApp'), first: true });
+    comics.replaceChildren(card.li);
+  } else {
+    comics.replaceChildren(el('li', { text: t('c.noComics') }));
   }
-  if (!items.length) { comics.append(el('li', { text: t('c.noComics') })); return; }
-  const cards = items.map(comicCard);
-  comics.replaceChildren(...cards.map(x => x.li));
-  loadCovers(items, cards);
+  $('comics-source').append(el('a', { href: searchUrl, target: '_blank', rel: 'noopener', text: t('c.searchFandom') }));
 }
 
 // Údaje z infoboxu Fandomu, které v databázi chybí
@@ -374,21 +279,6 @@ async function renderFandomComics(c, fd) {
   return true;
 }
 
-// Celý text článku z české Wikipedie kromě odkazů a literatury
-const CS_SKIP = /^(reference|poznámky|odkazy|externí odkazy|literatura|související články|v jiných médiích|film|televize|videohry)/i;
-async function czechStory(title) {
-  const data = await wiki({ action: 'parse', page: title, prop: 'text', redirects: '1', disableeditsection: '1' }, WIKI_CS);
-  const doc = new DOMParser().parseFromString(data.parse.text, 'text/html');
-  const parts = [];
-  for (const s of splitSections(doc)) {
-    if (CS_SKIP.test(s.title)) continue;
-    if (s.title !== '__intro') parts.push(el('h3', { text: s.title.replace(/\[editovat[^\]]*\]/g, '') }));
-    parts.push(...toSafe(s.nodes));
-  }
-  if (parts.filter(p => p.tagName === 'P').length === 0) return null;
-  const url = `https://cs.wikipedia.org/wiki/${encodeURIComponent(data.parse.title.replace(/ /g, '_'))}`;
-  return { parts, url, title: data.parse.title, site: 'Wikipedie (CZ)' };
-}
 
 function showStory(origin, story, c) {
   origin.replaceChildren(...story.parts);
@@ -417,52 +307,6 @@ function comicCard(x) {
 function baseTitle(t) {
   return t.replace(/\s*#.*$/, '').replace(/\s*\([^)]*\)\s*$/, '')
           .replace(/,?\s+vol(ume|\.)?\s*\d+.*$/i, '').replace(/[,:;\s]+$/, '').trim() || t;
-}
-
-const COMIC_DESC = /comic|series|anthology|magazine|graphic novel|storyline|crossover|limited series|one-shot/i;
-const NOT_COMIC = /\bcharacter\b|appearing in|fictional|supervillain|\bfilm\b|television|video game|novel by|band|album|soundtrack/i;
-
-// Pro každý komiks najde článek na Wikipedii s obálkou (infobox) a doplní obrázek.
-async function loadCovers(items, cards) {
-  const bases = items.map(x => baseTitle(x.title));
-  const candidatesFor = b => [`${b} (comic book)`, `${b} (comic book series)`, `${b} (comics)`, `${b} (comic)`, b];
-  const all = [...new Set(bases.flatMap(candidatesFor))];
-  const pages = new Map();   // požadovaný název -> stránka
-
-  for (let i = 0; i < all.length; i += 50) {
-    const chunk = all.slice(i, i + 50);
-    try {
-      const d = await wiki({ action: 'query', titles: chunk.join('|'), redirects: '1',
-        prop: 'pageimages|description|info', piprop: 'thumbnail', pithumbsize: '400', pilicense: 'any', inprop: 'url' });
-      const q = d.query || {};
-      const alias = new Map();
-      for (const n of q.normalized || []) alias.set(n.from, n.to);
-      const redir = new Map((q.redirects || []).map(r => [r.from, r.to]));
-      const byTitle = new Map((q.pages || []).map(p => [p.title, p]));
-      for (const t of chunk) {
-        let x = alias.get(t) || t;
-        x = redir.get(x) || x;
-        const p = byTitle.get(x);
-        if (p && !p.missing) pages.set(t, p);
-      }
-    } catch { /* bez obálek se nic nestane */ }
-  }
-
-  bases.forEach((b, i) => {
-    // Článek s upřesněním „(comic book)“ je vždy komiks; holý název jen když to potvrdí popis
-    const page = candidatesFor(b).map(t => pages.get(t)).find(p => p && p.thumbnail && (
-      /\((comic book|comic book series|comics|comic)\)$/i.test(p.title) && !NOT_COMIC.test(p.description || '') ||
-      COMIC_DESC.test(p.description || '') && !NOT_COMIC.test(p.description || '')));
-    if (!page) return;
-    const { cover, li } = cards[i];
-    const img = el('img', { src: page.thumbnail.source, alt: `${t('c.cover')} – ${items[i].title}`, loading: 'lazy' });
-    img.onerror = () => img.remove();
-    cover.append(img);
-    cover.classList.add('has-img');
-    const a = el('a', { href: page.fullurl, target: '_blank', rel: 'noopener', class: 'comic-link' });
-    a.append(...li.childNodes);
-    li.append(a);
-  });
 }
 
 /* ---------------- Filmy a seriály ---------------- */
@@ -504,90 +348,6 @@ async function loadPosters(list, cards) {
   });
 }
 
-// Doplnění filmů a seriálů z článku na Wikipedii (sekce „In other media“ a navazující články)
-const MEDIA_SECTION = /^(in other media|other media|in film|in television|adaptations|film|films|television|other versions in media)/i;
-const TV_DESC = /television|tv series|web series|miniseries|animated series|anime|streaming series/i;
-const FILM_DESC = /\bfilm\b|movie/i;
-const SKIP_DESC = /video game|comic|novel|album|song|soundtrack|porn|parody|actor|actress|character|episode|franchise|film series|toy|book|magazine|list of/i;
-
-function mediaLinks(nodes, out) {
-  for (const n of nodes) n.querySelectorAll?.('a[href^="/wiki/"]').forEach(a => {
-    if (!a.closest('i') && !a.querySelector('i')) return;   // názvy děl jsou kurzívou
-    const title = decodeURIComponent(a.getAttribute('href').slice(6)).split('#')[0].replace(/_/g, ' ');
-    if (!title.includes(':') || /^[^:]+: /.test(title) && !/^(File|Category|Help|Wikipedia|Template|Special|Portal):/.test(title)) out.add(title);
-  });
-}
-
-async function mediaFromArticle(sections, articleTitle) {
-  // Pořadí je důležité: nejdřív články „X in film“, pak „X in television“, nakonec ostatní
-  const film = new Set(), tvs = new Set(), other = new Set();
-  const more = new Set();
-  for (const s of sections) {
-    if (!MEDIA_SECTION.test(s.title)) continue;
-    mediaLinks(s.nodes, other);
-    for (const n of s.nodes) n.querySelectorAll?.('.hatnote a[href^="/wiki/"]').forEach(a => {
-      const tt = decodeURIComponent(a.getAttribute('href').slice(6)).split('#')[0].replace(/_/g, ' ');
-      if (/in (other )?media|in film|in television|in popular culture/i.test(tt)) more.add(tt);
-    });
-  }
-  // Články typu „Batman in film“ zkusit i bez odkazu z hlavního článku
-  const base = (articleTitle || '').replace(/\s*\([^)]*\)$/, '');
-  if (base) for (const suf of ['in film', 'in television', 'in other media']) more.add(`${base} ${suf}`);
-  const pages = [...more].sort((a, b) => rank(a) - rank(b)).slice(0, 5);
-  function rank(t) { return /in film/i.test(t) ? 0 : /in television/i.test(t) ? 1 : 2; }
-  for (const page of pages) {
-    try {
-      const d = await wiki({ action: 'parse', page, prop: 'text', redirects: '1', disableeditsection: '1' });
-      const doc = new DOMParser().parseFromString(d.parse.text, 'text/html');
-      const target = rank(page) === 0 ? film : rank(page) === 1 ? tvs : other;
-      for (const s of splitSections(doc)) {
-        if (/^(references|notes|external links|see also|video games|novels|books|music|comics|toys|theme parks?|merchandise)/i.test(s.title)) continue;
-        mediaLinks(s.nodes, /film|movie|cinema|theatrical/i.test(s.title) ? film : /television|tv|animat|series/i.test(s.title) ? tvs : target);
-      }
-    } catch { /* článek neexistuje */ }
-  }
-  const titles = [...new Set([...film, ...tvs, ...other])].slice(0, 600);
-  const out = { tv: [], films: [] };
-  for (let i = 0; i < titles.length; i += 50) {
-    try {
-      const d = await wiki({ action: 'query', titles: titles.slice(i, i + 50).join('|'), redirects: '1',
-        prop: 'pageimages|description', piprop: 'thumbnail', pithumbsize: '400', pilicense: 'any' });
-      for (const p of d.query?.pages || []) {
-        const desc = p.description || '';
-        if (p.missing || !desc || SKIP_DESC.test(desc)) continue;
-        const kind = TV_DESC.test(desc) ? 'tv' : FILM_DESC.test(desc) ? 'films' : null;
-        if (!kind) continue;
-        const y = desc.match(/\b(19\d{2}|20\d{2})\b/) || p.title.match(/\((19\d{2}|20\d{2})\b/);
-        out[kind].push({ name: p.title.replace(/\s*\([^)]*\)$/, ''), wiki: p.title,
-          year: y ? Number(y[1]) : undefined, thumb: p.thumbnail?.source });
-      }
-    } catch { /* ignore */ }
-  }
-  return out;
-}
-
-function mergeMedia(c, extra) {
-  const who = (c.baseName || c.name).replace(/\s*\(.*\)$/, '').toLowerCase();
-  for (const key of ['tv', 'films']) {
-    const fromWiki = extra[key].filter(m => !BAD_MEDIA.test(m.name));
-    const wikiKeys = new Set(fromWiki.map(m => m.wiki.toLowerCase()));
-    let list = [...(c[key] || [])];
-    // Když Wikipedie dodala dost titulů, z Wikidat ponechat jen ty, které Wikipedie potvrzuje
-    // nebo mají jméno postavy v názvu (vyřadí cameo typu „Cars“ u Batmana)
-    if (fromWiki.length >= 3) {
-      list = list.filter(m => (m.wiki && wikiKeys.has(m.wiki.toLowerCase())) || m.name.toLowerCase().includes(who));
-    }
-    const seen = new Set(list.map(m => (m.wiki || m.name).toLowerCase()));
-    for (const m of fromWiki) {
-      const k = m.wiki.toLowerCase();
-      if (seen.has(k)) continue;
-      seen.add(k);
-      list.push(m);
-    }
-    list.sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999) || a.name.localeCompare(b.name));
-    c[key] = list.slice(0, 150);
-  }
-}
 
 const BAD_MEDIA = /\bXXX\b|porn|parody/i;
 

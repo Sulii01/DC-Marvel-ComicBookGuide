@@ -493,6 +493,88 @@ def add_media_wiki(chars):
     print(f"    filmy/seriály z Wikipedie: +{added}", flush=True)
 
 
+EARTHS = {
+    "dc": re.compile(r"\((Prime Earth|New Earth|Earth-One|Earth-Two|Earth-S|Earth-X|Earth-Four)\)$"),
+    "marvel": re.compile(r"\(Earth-616\)$"),
+}
+
+
+def _norm(s):
+    return re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode().lower())
+
+
+def fandom_resolve_unmapped(chars, key):
+    """Postavám bez Fandom stránky ji dohledá: přes stránku se jménem (často rozcestník)
+    a nakonec přes vyhledávání – vždy jen při shodě jména / skutečného jména / přezdívky."""
+    sub = FANDOM[key][0]
+    earth = EARTHS[key]
+    taken = {c["fandom"] for c in chars if c.get("fandom")}
+    todo = [c for c in chars if not c.get("fandom")]
+    names_of = {}
+    for c in todo:
+        names = [c.get("baseName") or c["name"], c.get("realName")] + (c.get("aliases") or [])[:5]
+        names_of[c["id"]] = [n for n in dict.fromkeys(n.strip() for n in names if n) if len(n) > 1]
+
+    # 1) stránky se jménem: postava, nebo rozcestník s odkazy na postavy
+    bare = sorted({n for c in todo for n in names_of[c["id"]][:2]})
+    char_pages, links = {}, {}
+    for part in chunks(bare, 50):
+        params = {"action": "query", "titles": "|".join(part), "redirects": "1", "prop": "links|categories",
+                  "pllimit": "max", "plnamespace": "0", "clcategories": "Category:Characters", "cllimit": "max"}
+        back = {}
+        while True:
+            d = fandom_api(sub, params)
+            q = d.get("query", {})
+            for x in q.get("normalized", []) + q.get("redirects", []):
+                back.setdefault(x["to"], set()).update(back.get(x["from"], {x["from"]}))
+            for pg in q.get("pages", []):
+                origs = back.get(pg["title"], {pg["title"]}) | {pg["title"]}
+                for o in origs:
+                    if pg.get("categories"):
+                        char_pages[o] = pg["title"]
+                    links.setdefault(o, set()).update(l["title"] for l in pg.get("links", []) if earth.search(l["title"]))
+            if "continue" not in d:
+                break
+            params = {**params, **d["continue"]}
+
+    # počet výskytů kandidátů z rozcestníků
+    cands = sorted({t for ls in links.values() for t in ls} - taken)
+    size = {}
+    for part in chunks(cands, 50):
+        d = fandom_api(sub, {"action": "query", "prop": "categoryinfo",
+                             "titles": "|".join(f"Category:{t}/Appearances" for t in part)})
+        for pg in d.get("query", {}).get("pages", []):
+            size[pg["title"][9:-12]] = pg.get("categoryinfo", {}).get("size", 0)
+
+    found = 0
+    for c in todo:
+        names = names_of[c["id"]]
+        page = next((char_pages[n] for n in names[:2] if n in char_pages and char_pages[n] not in taken), None)
+        if not page:
+            opts = [t for n in names[:2] for t in links.get(n, ()) if t not in taken]
+            if opts:
+                page = max(opts, key=lambda t: size.get(t, 0))
+        if not page:
+            # 2) vyhledávání – jen přesná shoda jména stránky (bez reality v závorce) se jménem postavy
+            d = fandom_api(sub, {"action": "query", "list": "search", "srsearch": names[0] if names else c["name"],
+                                 "srlimit": "10", "srprop": "redirecttitle"})
+            wanted = {_norm(n) for n in names}
+            for r in d.get("query", {}).get("search", []):
+                t = r["title"]
+                if not earth.search(t) or t in taken:
+                    continue
+                if _norm(re.sub(r"\s*\(.*\)$", "", t)) in wanted or _norm(re.sub(r"\s*\(.*\)$", "", r.get("redirecttitle") or "")) in wanted:
+                    page = t
+                    break
+        if page:
+            c["fandom"] = page
+            taken.add(page)
+            if size.get(page):
+                c["apps"] = size[page]
+            found += 1
+    print(f"    dohledáno na Fandomu: {found}/{len(todo)}", flush=True)
+
+
 def fandom_images(chars, key):
     """Obrázky z Fandomu: doplní je postavám bez obrázku a nahradí duplicitní obrázky
     (např. Azrael a Jean-Paul Valley mají na Wikipedii jeden společný článek)."""
@@ -530,11 +612,14 @@ def fandom_images(chars, key):
                 thumbs[pg["title"]] = pg["thumbnail"]["source"]
     added = replaced = 0
     for c in chars:
+        # obrázky z Wikipedie se už nepoužívají
+        if "wikimedia.org" in (c.get("img") or ""):
+            c.pop("img")
         f = thumbs.get(c.get("fandom"))
         if f:
             c["fimg"] = f
-            if not c.get("img"):
-                c["img"] = f
+            if c.get("img") != f:
+                c["img"] = f      # Fandom má přednost
                 added += 1
     same = {}
     for c in chars:
@@ -732,6 +817,7 @@ def main():
         disambiguate(chars)
         print(f"[{key}] Fandom…", flush=True)
         add_fandom(chars, key)
+        fandom_resolve_unmapped(chars, key)
         fandom_images(chars, key)
         (OUT / f"{key}.json").write_text(json.dumps(chars, ensure_ascii=False, separators=(",", ":")))
         print(f"[{key}] hotovo: {len(chars)} postav, {sum(1 for c in chars if c.get('img'))} s obrázkem, "
@@ -749,6 +835,7 @@ def postprocess_only():
         disambiguate(chars)
         print(f"[{key}] Fandom…", flush=True)
         add_fandom(chars, key)
+        fandom_resolve_unmapped(chars, key)
         fandom_images(chars, key)
         if "--media" in sys.argv:
             add_media_wiki(chars)
