@@ -140,7 +140,7 @@ function extractComics(sections) {
   const found = new Map();
   const add = (t, note) => {
     t = t.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim();
-    if (t.length < 3 || t.length > 90 || /^\d+$/.test(t)) return;
+    if (t.length < 3 || t.length > 90 || /^\d+$/.test(t) || /needed|citation|clarification/i.test(t)) return;
     const key = t.toLowerCase();
     if (!found.has(key)) found.set(key, { title: t, note });
   };
@@ -162,7 +162,10 @@ function extractComics(sections) {
   // Názvy sérií zmíněné kurzívou v historii vydávání a v biografii
   for (const s of sections) {
     if (PUB.test(s.title) || BIO.test(s.title)) {
-      for (const n of s.nodes) n.querySelectorAll?.('p i, li i').forEach(i => add(i.textContent, 'Komiksová série'));
+      for (const n of s.nodes) n.querySelectorAll?.('p i, li i').forEach(i => {
+        // kurzíva v poznámkách typu [volume and issue needed] není název komiksu
+        if (!i.closest('sup, .noprint, .Template-Fact')) add(i.textContent, 'Komiksová série');
+      });
     }
   }
   return [...found.values()].slice(0, 120);
@@ -174,7 +177,8 @@ async function loadWiki(c) {
 
   // Vždy zobrazit první výskyt jako první komiks
   const first = clean(c.biography.firstAppearance);
-  if (first) comics.append(el('li', { class: 'first' }, el('small', { text: 'První výskyt' }), first));
+  const items = [];
+  if (first) items.push({ title: first, note: 'První výskyt', first: true });
 
   let title;
   try {
@@ -218,14 +222,75 @@ async function loadWiki(c) {
       ' (CC BY-SA 4.0) · Více na ',
       el('a', { href: `${u.fandom}/wiki/Special:Search?query=${encodeURIComponent(c.name)}`, target: '_blank', rel: 'noopener', text: `${u.label} Fandom wiki` })));
 
-    for (const x of extractComics(sections))
-      comics.append(el('li', {}, el('small', { text: x.note }), x.title));
+    items.push(...extractComics(sections));
     $('comics-source').append('Seznam sestaven z článku ',
       el('a', { href: pageUrl, target: '_blank', rel: 'noopener', text: data.parse.title }), ' na Wikipedii.');
   } catch (e) {
     origin.replaceChildren(el('p', { class: 'state error', text: `Příběh se nepodařilo načíst (${e.message}).` }));
   }
-  if (!comics.children.length) comics.append(el('li', { text: 'Žádné komiksy nenalezeny.' }));
+  if (!items.length) { comics.append(el('li', { text: 'Žádné komiksy nenalezeny.' })); return; }
+  const cards = items.map(comicCard);
+  comics.replaceChildren(...cards.map(c => c.li));
+  loadCovers(items, cards);
+}
+
+/* ---------------- Obálky komiksů ---------------- */
+
+function comicCard(x) {
+  const cover = el('div', { class: 'cover' }, el('span', { class: 'cover-ph', text: baseTitle(x.title) }));
+  const li = el('li', { class: x.first ? 'first' : null }, cover,
+    el('div', { class: 'comic-info' }, el('small', { text: x.note }), el('span', { class: 'comic-title', text: x.title })));
+  return { li, cover };
+}
+
+// "Showcase #22 (October, 1959)" -> "Showcase"; "Iron Man vol. 2" -> "Iron Man"
+function baseTitle(t) {
+  return t.replace(/\s*#.*$/, '').replace(/\s*\([^)]*\)\s*$/, '')
+          .replace(/,?\s+vol(ume|\.)?\s*\d+.*$/i, '').replace(/[,:;\s]+$/, '').trim() || t;
+}
+
+const COMIC_DESC = /comic|series|anthology|magazine|graphic novel|storyline|crossover|limited series|one-shot/i;
+const NOT_COMIC = /character|superhero|supervillain|villain|film|television|video game|novel by|band|album/i;
+
+// Pro každý komiks najde článek na Wikipedii s obálkou (infobox) a doplní obrázek.
+async function loadCovers(items, cards) {
+  const bases = items.map(x => baseTitle(x.title));
+  const candidatesFor = b => [`${b} (comic book)`, `${b} (comics)`, `${b} (comic)`, b];
+  const all = [...new Set(bases.flatMap(candidatesFor))];
+  const pages = new Map();   // požadovaný název -> stránka
+
+  for (let i = 0; i < all.length; i += 50) {
+    const chunk = all.slice(i, i + 50);
+    try {
+      const d = await wiki({ action: 'query', titles: chunk.join('|'), redirects: '1',
+        prop: 'pageimages|description|info', piprop: 'thumbnail', pithumbsize: '400', inprop: 'url' });
+      const q = d.query || {};
+      const alias = new Map();
+      for (const n of q.normalized || []) alias.set(n.from, n.to);
+      const redir = new Map((q.redirects || []).map(r => [r.from, r.to]));
+      const byTitle = new Map((q.pages || []).map(p => [p.title, p]));
+      for (const t of chunk) {
+        let x = alias.get(t) || t;
+        x = redir.get(x) || x;
+        const p = byTitle.get(x);
+        if (p && !p.missing) pages.set(t, p);
+      }
+    } catch { /* bez obálek se nic nestane */ }
+  }
+
+  bases.forEach((b, i) => {
+    const page = candidatesFor(b).map(t => pages.get(t)).find(p =>
+      p && p.thumbnail && COMIC_DESC.test(p.description || '') && !NOT_COMIC.test(p.description || ''));
+    if (!page) return;
+    const { cover, li } = cards[i];
+    const img = el('img', { src: page.thumbnail.source, alt: `Obálka – ${items[i].title}`, loading: 'lazy' });
+    img.onerror = () => img.remove();
+    cover.append(img);
+    cover.classList.add('has-img');
+    const a = el('a', { href: page.fullurl, target: '_blank', rel: 'noopener', class: 'comic-link' });
+    a.append(...li.childNodes);
+    li.append(a);
+  });
 }
 
 try {
