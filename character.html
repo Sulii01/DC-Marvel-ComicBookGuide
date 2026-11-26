@@ -7,7 +7,8 @@
   <meta name="referrer" content="no-referrer">
   <title>Postava – Comic Book Guide</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -16,11 +17,12 @@
     <span class="crumbs" id="crumbs"></span>
   </header>
 
+  <div class="hero-bg" id="hero-bg" aria-hidden="true"></div>
   <main class="wrap">
     <div id="state" class="state" data-i18n="c.loading">Načítám postavu…</div>
     <article id="content" hidden>
       <div class="hero-layout">
-        <figure class="full-image" style="margin:0">
+        <figure class="full-image">
           <div class="frame backdrop"><img id="full" alt=""></div>
           <figcaption class="credit" id="credit"></figcaption>
         </figure>

@@ -605,6 +605,13 @@ function renderMedia(c) {
   $('media-source').hidden = !any;
 }
 
+// Rozmazaný obrázek postavy v pozadí horní části stránky
+$('full').addEventListener('load', () => {
+  const src = $('full').currentSrc || $('full').src;
+  if (src) $('hero-bg').style.backgroundImage = `url("${src.replace(/"/g, '%22')}")`;
+});
+document.documentElement.style.setProperty('--topbar-h', `${document.querySelector('.topbar')?.offsetHeight || 62}px`);
+
 try {
   await loadDictionary();
   const c = await loadOne(u.key, id);
