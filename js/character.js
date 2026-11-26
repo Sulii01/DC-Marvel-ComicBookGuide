@@ -300,7 +300,7 @@ const NOT_COMIC = /character|superhero|supervillain|villain|film|television|vide
 // Pro každý komiks najde článek na Wikipedii s obálkou (infobox) a doplní obrázek.
 async function loadCovers(items, cards) {
   const bases = items.map(x => baseTitle(x.title));
-  const candidatesFor = b => [`${b} (comic book)`, `${b} (comics)`, `${b} (comic)`, b];
+  const candidatesFor = b => [`${b} (comic book)`, `${b} (comic book series)`, `${b} (comics)`, `${b} (comic)`, b];
   const all = [...new Set(bases.flatMap(candidatesFor))];
   const pages = new Map();   // požadovaný název -> stránka
 
@@ -308,7 +308,7 @@ async function loadCovers(items, cards) {
     const chunk = all.slice(i, i + 50);
     try {
       const d = await wiki({ action: 'query', titles: chunk.join('|'), redirects: '1',
-        prop: 'pageimages|description|info', piprop: 'thumbnail', pithumbsize: '400', inprop: 'url' });
+        prop: 'pageimages|description|info', piprop: 'thumbnail', pithumbsize: '400', pilicense: 'any', inprop: 'url' });
       const q = d.query || {};
       const alias = new Map();
       for (const n of q.normalized || []) alias.set(n.from, n.to);
@@ -324,8 +324,10 @@ async function loadCovers(items, cards) {
   }
 
   bases.forEach((b, i) => {
-    const page = candidatesFor(b).map(t => pages.get(t)).find(p =>
-      p && p.thumbnail && COMIC_DESC.test(p.description || '') && !NOT_COMIC.test(p.description || ''));
+    // Článek s upřesněním „(comic book)“ je vždy komiks; holý název jen když to potvrdí popis
+    const page = candidatesFor(b).map(t => pages.get(t)).find(p => p && p.thumbnail && (
+      /\((comic book|comic book series|comics|comic)\)$/i.test(p.title) && !NOT_COMIC.test(p.description || '') ||
+      COMIC_DESC.test(p.description || '') && !NOT_COMIC.test(p.description || '')));
     if (!page) return;
     const { cover, li } = cards[i];
     const img = el('img', { src: page.thumbnail.source, alt: `${t('c.cover')} – ${items[i].title}`, loading: 'lazy' });
@@ -338,10 +340,64 @@ async function loadCovers(items, cards) {
   });
 }
 
+/* ---------------- Filmy a seriály ---------------- */
+
+function mediaCard(m, label) {
+  const title = (lang === 'cs' && m.nameCs) || m.name;
+  const cover = el('div', { class: 'cover' }, el('span', { class: 'cover-ph', text: title }));
+  const info = el('div', { class: 'comic-info' },
+    el('small', { text: m.year ? `${label} · ${m.year}` : label }), el('span', { class: 'comic-title', text: title }));
+  const li = el('li', {});
+  if (m.wiki) {
+    li.append(el('a', { class: 'comic-link', target: '_blank', rel: 'noopener',
+      href: `https://en.wikipedia.org/wiki/${encodeURIComponent(m.wiki.replace(/ /g, '_'))}` }, cover, info));
+  } else li.append(cover, info);
+  return { li, cover, title };
+}
+
+// Plakáty: obrázek z infoboxu článku o filmu/seriálu (oficiální plakát nebo titulní karta)
+async function loadPosters(list, cards) {
+  const titles = [...new Set(list.map(m => m.wiki).filter(Boolean))];
+  const thumbs = new Map();
+  for (let i = 0; i < titles.length; i += 50) {
+    try {
+      const d = await wiki({ action: 'query', titles: titles.slice(i, i + 50).join('|'), redirects: '1',
+        prop: 'pageimages', piprop: 'thumbnail', pithumbsize: '400', pilicense: 'any' });
+      const q = d.query || {};
+      const back = new Map();
+      for (const n of [...(q.normalized || []), ...(q.redirects || [])]) back.set(n.to, back.get(n.from) || n.from);
+      for (const p of q.pages || []) if (p.thumbnail) thumbs.set(back.get(p.title) || p.title, p.thumbnail.source);
+    } catch { /* bez plakátů */ }
+  }
+  list.forEach((m, i) => {
+    const src = m.wiki && thumbs.get(m.wiki);
+    if (!src) return;
+    const img = el('img', { src, alt: `${t('c.poster')} – ${cards[i].title}`, loading: 'lazy' });
+    img.onerror = () => img.remove();
+    cards[i].cover.append(img);
+    cards[i].cover.classList.add('has-img');
+  });
+}
+
+function renderMedia(c) {
+  let any = false;
+  for (const [key, label] of [['tv', t('c.tvShow')], ['films', t('c.film')]]) {
+    const list = c[key] || [];
+    if (!list.length) continue;
+    any = true;
+    const cards = list.map(m => mediaCard(m, label));
+    $(key).replaceChildren(...cards.map(x => x.li));
+    $(`${key}-panel`).hidden = false;
+    loadPosters(list, cards);
+  }
+  $('media-source').hidden = !any;
+}
+
 try {
   await loadDictionary();
   const c = await loadOne(u.key, id);
   renderBase(c);
+  renderMedia(c);
   loadWiki(c);
 } catch (e) {
   $('state').textContent = e.message;

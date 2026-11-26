@@ -309,6 +309,49 @@ def add_czech(chars, dictionary):
                 dictionary[en] = cs
 
 
+# ---------------------------------------------------------------- Filmy a seriály
+
+MEDIA_TYPES = ('(wd:Q11424 "film") (wd:Q202866 "film") (wd:Q506240 "film") (wd:Q24862 "film") '
+               '(wd:Q5398426 "tv") (wd:Q581714 "tv") (wd:Q1259759 "tv") (wd:Q526877 "tv") '
+               '(wd:Q117467246 "tv") (wd:Q15416 "tv") (wd:Q63952888 "tv")')
+
+
+def add_media(chars):
+    """Filmy a seriály, ve kterých se postava (nebo její filmová/seriálová verze) objevila."""
+    by_id = {c["id"]: c for c in chars}
+    media = {}
+    for part in chunks(list(by_id), 100):
+        sub = "VALUES ?c { " + " ".join(f"wd:{q}" for q in part) + " }"
+        for r in sparql(f"""
+          SELECT ?c ?w ?kind ?wl ?wlc ?title (MIN(?d) AS ?date) WHERE {{
+            {sub}
+            {{ ?c wdt:P1441 ?w }} UNION {{ ?w wdt:P674 ?c }}
+            UNION {{ ?x wdt:P144 ?c . ?x wdt:P1441 ?w }} UNION {{ ?x wdt:P144 ?c . ?w wdt:P674 ?x }}
+            UNION {{ ?c wdt:P4969 ?x . ?x wdt:P1441 ?w }} UNION {{ ?c wdt:P4969 ?x . ?w wdt:P674 ?x }}
+            VALUES (?t ?kind) {{ {MEDIA_TYPES} }}
+            ?w wdt:P31 ?t .
+            ?w rdfs:label ?wl FILTER(lang(?wl)="en")
+            OPTIONAL {{ ?w rdfs:label ?wlc FILTER(lang(?wlc)="cs") }}
+            OPTIONAL {{ ?a schema:about ?w; schema:isPartOf <https://en.wikipedia.org/>; schema:name ?title }}
+            OPTIONAL {{ ?w wdt:P577 ?d }}
+          }} GROUP BY ?c ?w ?kind ?wl ?wlc ?title"""):
+            c = qid(r["c"]["value"])
+            kind = r["kind"]["value"]
+            item = {"name": r["wl"]["value"]}
+            if "wlc" in r and r["wlc"]["value"] != item["name"]:
+                item["nameCs"] = r["wlc"]["value"]
+            if "title" in r:
+                item["wiki"] = r["title"]["value"]
+            if "date" in r:
+                m = re.match(r"(\d{4})", r["date"]["value"])
+                if m:
+                    item["year"] = int(m.group(1))
+            media.setdefault((c, kind), {})[qid(r["w"]["value"])] = item
+    for (c, kind), works in media.items():
+        lst = sorted(works.values(), key=lambda x: (x.get("year", 9999), x["name"]))
+        by_id[c]["films" if kind == "film" else "tv"] = lst[:80]
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     print("Superhero API…", flush=True)
@@ -318,9 +361,12 @@ def main():
         chars = build(key, conf, akabab)
         print(f"[{key}] čeština…", flush=True)
         add_czech(chars, dictionary)
+        print(f"[{key}] filmy a seriály…", flush=True)
+        add_media(chars)
         (OUT / f"{key}.json").write_text(json.dumps(chars, ensure_ascii=False, separators=(",", ":")))
         print(f"[{key}] hotovo: {len(chars)} postav, {sum(1 for c in chars if c.get('img'))} s obrázkem, "
-              f"{sum(1 for c in chars if c.get('wikiCs'))} s českým článkem", flush=True)
+              f"{sum(1 for c in chars if c.get('wikiCs'))} s českým článkem, "
+              f"{sum(1 for c in chars if c.get('films'))} s filmy, {sum(1 for c in chars if c.get('tv'))} se seriály", flush=True)
     (OUT / "cs.json").write_text(json.dumps(dict(sorted(dictionary.items())), ensure_ascii=False, indent=0))
     print(f"slovník: {len(dictionary)} výrazů", flush=True)
 

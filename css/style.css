@@ -228,3 +228,5 @@ img { max-width: 100%; display: block; }
 .lang-switch button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .lang-switch.floating { position: fixed; top: 16px; right: 16px; z-index: 20; background: rgba(13,15,20,.85); --accent: #e62429; }
 .topbar .crumbs { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+#media-source { margin: 12px 4px 0; }
