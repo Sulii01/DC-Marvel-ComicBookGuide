@@ -353,6 +353,120 @@ def add_fandom(chars, key):
     print(f"    fandom: {found}/{len(chars)} postav má stránku na {sub}.fandom.com", flush=True)
 
 
+# ---------------------------------------------------------------- Filmy a seriály z Wikipedie
+
+MEDIA_SUFFIXES = ("in film", "in television", "in other media")
+SKIP_SECTION = re.compile(r"^(references|notes|external links|see also|video games?|novels?|books?|music|comics|toys|"
+                          r"theme parks?|merchandise|literature|radio|stage|further reading|bibliography)", re.I)
+TV_DESC = re.compile(r"television|tv series|web series|miniseries|animated series|anime|streaming series", re.I)
+FILM_DESC = re.compile(r"\bfilm\b|movie", re.I)
+SKIP_DESC = re.compile(r"video game|comic|novel|album|song|soundtrack|porn|parody|actor|actress|character|episode|"
+                       r"franchise|film series|toy|book|magazine|list of|television channel|studio|company", re.I)
+BAD_TITLE = re.compile(r"\bXXX\b|porn|parody", re.I)
+
+
+def _italic_links(html):
+    """Odkazy na díla – na Wikipedii jsou názvy filmů a seriálů psané kurzívou."""
+    out = []
+    for m in re.finditer(r'<i>\s*<a href="/wiki/([^"#]+)[^"]*"[^>]*>|<a href="/wiki/([^"#]+)[^"]*"[^>]*>\s*<i>', html):
+        t = requests.utils.unquote(m.group(1) or m.group(2)).replace("_", " ")
+        if ":" in t and re.match(r"^(File|Category|Help|Wikipedia|Template|Special|Portal|Talk):", t):
+            continue
+        out.append(t)
+    return out
+
+
+def add_media_wiki(chars):
+    """Doplní filmy a seriály z článků „<postava> in film / in television / in other media“."""
+    base_of = {}
+    for c in chars:
+        if c.get("wiki"):
+            base_of.setdefault(re.sub(r"\s*\([^)]*\)$", "", c["wiki"]), []).append(c)
+    cands = [f"{b} {suf}" for b in base_of for suf in MEDIA_SUFFIXES]
+    exists = {}
+    for part in chunks(cands, 50):
+        d = get("https://en.wikipedia.org/w/api.php", {"action": "query", "format": "json", "formatversion": "2",
+                                                        "titles": "|".join(part), "redirects": "1"})
+        q = d.get("query", {})
+        back = {}
+        for x in q.get("normalized", []) + q.get("redirects", []):
+            back[x["to"]] = back.get(x["from"], x["from"])
+        for pg in q.get("pages", []):
+            if not pg.get("missing"):
+                exists[back.get(pg["title"], pg["title"])] = pg["title"]
+    print(f"    články o filmech/seriálech: {len(exists)}", flush=True)
+
+    found = {}   # base -> {"films": [titles], "tv": [titles], "other": [titles]}
+    for cand, page in exists.items():
+        base, suf = next((cand[:-len(x) - 1], x) for x in MEDIA_SUFFIXES if cand.endswith(x))
+        d = get("https://en.wikipedia.org/w/api.php", {"action": "parse", "format": "json", "formatversion": "2",
+                                                        "page": page, "prop": "text", "disableeditsection": "1"})
+        html = d.get("parse", {}).get("text", "")
+        bucket = found.setdefault(base, {"films": [], "tv": [], "other": []})
+        default = "films" if suf == "in film" else "tv" if suf == "in television" else "other"
+        parts = re.split(r'<h2[^>]*>', html)
+        for i, part in enumerate(parts):
+            head = re.sub(r"<[^>]+>", "", part[:300].split("</h2>")[0]).strip() if i else ""
+            if SKIP_SECTION.match(head):
+                continue
+            kind = "films" if re.search(r"film|movie|cinema|theatrical", head, re.I) else \
+                   "tv" if re.search(r"television|tv|animat|series", head, re.I) else default
+            bucket[kind] += _italic_links(part)
+
+    titles = sorted({t for b in found.values() for lst in b.values() for t in lst})
+    info = {}
+    for part in chunks(titles, 50):
+        d = get("https://en.wikipedia.org/w/api.php", {"action": "query", "format": "json", "formatversion": "2",
+                                                        "titles": "|".join(part), "redirects": "1", "prop": "description"})
+        q = d.get("query", {})
+        norm = {x["from"]: x["to"] for x in q.get("normalized", [])}
+        redir = {x["from"]: x["to"] for x in q.get("redirects", [])}
+        pages = {pg["title"]: pg for pg in q.get("pages", [])}
+        for orig in part:
+            t = norm.get(orig, orig)
+            t = redir.get(t, t)
+            pg = pages.get(t)
+            if not pg or pg.get("missing"):
+                continue
+            desc = pg.get("description") or ""
+            if not desc or SKIP_DESC.search(desc) or BAD_TITLE.search(pg["title"]):
+                continue
+            kind = "tv" if TV_DESC.search(desc) else "films" if FILM_DESC.search(desc) else None
+            if not kind:
+                continue
+            y = re.search(r"\b(19\d{2}|20\d{2})\b", desc) or re.search(r"\((19\d{2}|20\d{2})\b", pg["title"])
+            item = {"name": re.sub(r"\s*\([^)]*\)$", "", pg["title"]), "wiki": pg["title"], "kind": kind}
+            if y:
+                item["year"] = int(y.group(1))
+            info[orig] = item
+
+    added = 0
+    for base, bucket in found.items():
+        items = {}
+        for lst in bucket.values():
+            for t in lst:
+                if t in info:
+                    items[info[t]["wiki"]] = info[t]
+        if not items:
+            continue
+        for c in base_of[base]:
+            who = (c.get("baseName") or c["name"]).lower()
+            for key in ("films", "tv"):
+                new = [dict((k, v) for k, v in m.items() if k != "kind") for m in items.values() if m["kind"] == key]
+                if not new:
+                    continue
+                wiki_keys = {m["wiki"].lower() for m in new}
+                old = c.get(key, [])
+                if len(new) >= 3:   # Wikidata cameo (např. „Cars“ u Batmana) vyřadit
+                    old = [m for m in old if (m.get("wiki") or "").lower() in wiki_keys or who in m["name"].lower()]
+                seen = {(m.get("wiki") or m["name"]).lower() for m in old}
+                merged = old + [m for m in new if m["wiki"].lower() not in seen]
+                merged.sort(key=lambda m: (m.get("year", 9999), m["name"]))
+                added += len(merged) - len(c.get(key, []))
+                c[key] = merged[:150]
+    print(f"    filmy/seriály z Wikipedie: +{added}", flush=True)
+
+
 def fandom_images(chars, key):
     """Obrázky z Fandomu: doplní je postavám bez obrázku a nahradí duplicitní obrázky
     (např. Azrael a Jean-Paul Valley mají na Wikipedii jeden společný článek)."""
@@ -588,6 +702,7 @@ def main():
         add_czech(chars, dictionary)
         print(f"[{key}] filmy a seriály…", flush=True)
         add_media(chars)
+        add_media_wiki(chars)
         disambiguate(chars)
         print(f"[{key}] Fandom…", flush=True)
         add_fandom(chars, key)
@@ -609,6 +724,8 @@ def postprocess_only():
         print(f"[{key}] Fandom…", flush=True)
         add_fandom(chars, key)
         fandom_images(chars, key)
+        if "--media" in sys.argv:
+            add_media_wiki(chars)
         f.write_text(json.dumps(chars, ensure_ascii=False, separators=(",", ":")))
 
 

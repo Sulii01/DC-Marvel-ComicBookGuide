@@ -210,7 +210,7 @@ async function loadWiki(c) {
   })().catch(() => null);
 
   const [fd, wp] = await Promise.all([fandomP, wikiP]);
-  if (wp) mediaFromArticle(wp.sections).then(extra => { mergeMedia(c, extra); renderMedia(c); }).catch(() => {});
+  if (wp) mediaFromArticle(wp.sections, wp.title).then(extra => { mergeMedia(c, extra); renderMedia(c); }).catch(() => {});
 
   // ---- Obrázek celé postavy: vlastní > Fandom > Wikipedie
   const custom = overrideFor(c, 'full');
@@ -518,25 +518,35 @@ function mediaLinks(nodes, out) {
   });
 }
 
-async function mediaFromArticle(sections) {
-  const links = new Set();
+async function mediaFromArticle(sections, articleTitle) {
+  // Pořadí je důležité: nejdřív články „X in film“, pak „X in television“, nakonec ostatní
+  const film = new Set(), tvs = new Set(), other = new Set();
   const more = new Set();
   for (const s of sections) {
     if (!MEDIA_SECTION.test(s.title)) continue;
-    mediaLinks(s.nodes, links);
+    mediaLinks(s.nodes, other);
     for (const n of s.nodes) n.querySelectorAll?.('.hatnote a[href^="/wiki/"]').forEach(a => {
       const tt = decodeURIComponent(a.getAttribute('href').slice(6)).split('#')[0].replace(/_/g, ' ');
-      if (/in (other )?media|in film|in television/i.test(tt)) more.add(tt);
+      if (/in (other )?media|in film|in television|in popular culture/i.test(tt)) more.add(tt);
     });
   }
-  for (const page of [...more].slice(0, 3)) {
+  // Články typu „Batman in film“ zkusit i bez odkazu z hlavního článku
+  const base = (articleTitle || '').replace(/\s*\([^)]*\)$/, '');
+  if (base) for (const suf of ['in film', 'in television', 'in other media']) more.add(`${base} ${suf}`);
+  const pages = [...more].sort((a, b) => rank(a) - rank(b)).slice(0, 5);
+  function rank(t) { return /in film/i.test(t) ? 0 : /in television/i.test(t) ? 1 : 2; }
+  for (const page of pages) {
     try {
       const d = await wiki({ action: 'parse', page, prop: 'text', redirects: '1', disableeditsection: '1' });
       const doc = new DOMParser().parseFromString(d.parse.text, 'text/html');
-      for (const s of splitSections(doc)) if (!/^(references|notes|external links|see also|video games|novels|books|music)/i.test(s.title)) mediaLinks(s.nodes, links);
-    } catch { /* ignore */ }
+      const target = rank(page) === 0 ? film : rank(page) === 1 ? tvs : other;
+      for (const s of splitSections(doc)) {
+        if (/^(references|notes|external links|see also|video games|novels|books|music|comics|toys|theme parks?|merchandise)/i.test(s.title)) continue;
+        mediaLinks(s.nodes, /film|movie|cinema|theatrical/i.test(s.title) ? film : /television|tv|animat|series/i.test(s.title) ? tvs : target);
+      }
+    } catch { /* článek neexistuje */ }
   }
-  const titles = [...links].slice(0, 250);
+  const titles = [...new Set([...film, ...tvs, ...other])].slice(0, 600);
   const out = { tv: [], films: [] };
   for (let i = 0; i < titles.length; i += 50) {
     try {
@@ -557,18 +567,25 @@ async function mediaFromArticle(sections) {
 }
 
 function mergeMedia(c, extra) {
+  const who = (c.baseName || c.name).replace(/\s*\(.*\)$/, '').toLowerCase();
   for (const key of ['tv', 'films']) {
-    const list = [...(c[key] || [])];
+    const fromWiki = extra[key].filter(m => !BAD_MEDIA.test(m.name));
+    const wikiKeys = new Set(fromWiki.map(m => m.wiki.toLowerCase()));
+    let list = [...(c[key] || [])];
+    // Když Wikipedie dodala dost titulů, z Wikidat ponechat jen ty, které Wikipedie potvrzuje
+    // nebo mají jméno postavy v názvu (vyřadí cameo typu „Cars“ u Batmana)
+    if (fromWiki.length >= 3) {
+      list = list.filter(m => (m.wiki && wikiKeys.has(m.wiki.toLowerCase())) || m.name.toLowerCase().includes(who));
+    }
     const seen = new Set(list.map(m => (m.wiki || m.name).toLowerCase()));
-    for (const m of extra[key]) {
+    for (const m of fromWiki) {
       const k = m.wiki.toLowerCase();
-      if (BAD_MEDIA.test(m.name)) continue;
       if (seen.has(k)) continue;
       seen.add(k);
       list.push(m);
     }
     list.sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999) || a.name.localeCompare(b.name));
-    c[key] = list.slice(0, 120);
+    c[key] = list.slice(0, 150);
   }
 }
 
