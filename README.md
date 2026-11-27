@@ -28,4 +28,4 @@ Oficiální loga do repa nejsou přiložená. Ulož je jako `assets/marvel-logo.
 ```bash
 python3 -m http.server 8000
 ```
-a otevři http://localhost:8000. Lze nasadit i na GitHub Pages.
+a otevři https://sulii01.github.io/DC-Marvel-ComicBookGuide/
